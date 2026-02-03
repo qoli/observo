@@ -25,3 +25,4 @@ Packages/
 *.crt
 *.key
 *.pem
+*.xcuserstate
