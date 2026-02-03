@@ -25,20 +25,6 @@ import Textual
 
     struct AppTerminalView: View {
         @ObservedObject var sessionStore: TerminalSessionStore
-        @Environment(\.colorScheme) private var colorScheme
-
-        // Legacy global theme keys (kept as fallback for compatibility).
-        @AppStorage("terminal.fontSize") private var terminalFontSize = 11.0
-        @AppStorage("terminal.foregroundHex") private var terminalForegroundHex = "#00FF66"
-        @AppStorage("terminal.backgroundHex") private var terminalBackgroundHex = "#000000"
-        @AppStorage("terminal.ansiPaletteHexCSV") private var terminalAnsiPaletteHexCSV = DefaultTerminalTheme.ansiPaletteCSV
-        // Appearance-specific keys.
-        @AppStorage("terminal.dark.foregroundHex") private var terminalDarkForegroundHex = ""
-        @AppStorage("terminal.dark.backgroundHex") private var terminalDarkBackgroundHex = "darkBackground"
-        @AppStorage("terminal.dark.ansiPaletteHexCSV") private var terminalDarkAnsiPaletteHexCSV = ""
-        @AppStorage("terminal.light.foregroundHex") private var terminalLightForegroundHex = DefaultTerminalTheme.lightForegroundHex
-        @AppStorage("terminal.light.backgroundHex") private var terminalLightBackgroundHex = "lightBackground"
-        @AppStorage("terminal.light.ansiPaletteHexCSV") private var terminalLightAnsiPaletteHexCSV = DefaultTerminalTheme.lightAnsiPaletteCSV
 
         private var canConnectSSH: Bool {
             !sessionStore.host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -63,44 +49,6 @@ import Textual
                 return descriptor
             }
             return "Terminal Session"
-        }
-
-        private var terminalStyle: TerminalVisualStyle {
-            let isDark = colorScheme != .light
-            let fallbackPalette = isDark ? DefaultTerminalTheme.darkAnsiPalette : DefaultTerminalTheme.lightAnsiPalette
-            let foregroundHex = isDark
-                ? Self.resolvedHex(primary: terminalDarkForegroundHex, fallback: terminalForegroundHex, defaultValue: DefaultTerminalTheme.darkForegroundHex)
-                : Self.resolvedHex(primary: terminalLightForegroundHex, fallback: terminalForegroundHex, defaultValue: DefaultTerminalTheme.lightForegroundHex)
-            let backgroundHex = isDark
-                ? Self.resolvedHex(primary: terminalDarkBackgroundHex, fallback: terminalBackgroundHex, defaultValue: DefaultTerminalTheme.darkBackgroundHex)
-                : Self.resolvedHex(primary: terminalLightBackgroundHex, fallback: terminalBackgroundHex, defaultValue: DefaultTerminalTheme.lightBackgroundHex)
-            let paletteHexCSV = isDark
-                ? Self.resolvedHex(primary: terminalDarkAnsiPaletteHexCSV, fallback: terminalAnsiPaletteHexCSV, defaultValue: DefaultTerminalTheme.darkAnsiPaletteCSV)
-                : Self.resolvedHex(primary: terminalLightAnsiPaletteHexCSV, fallback: terminalAnsiPaletteHexCSV, defaultValue: DefaultTerminalTheme.lightAnsiPaletteCSV)
-
-            return TerminalVisualStyle(
-                fontSize: CGFloat(terminalFontSize),
-                foregroundHex: foregroundHex,
-                backgroundHex: backgroundHex,
-                ansiPaletteHex: Self.normalizedAnsiPalette(hexCSV: paletteHexCSV, fallbackPalette: fallbackPalette)
-            )
-        }
-
-        private static func resolvedHex(primary: String, fallback: String, defaultValue: String) -> String {
-            let primaryTrimmed = primary.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !primaryTrimmed.isEmpty {
-                return primaryTrimmed
-            }
-            let fallbackTrimmed = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
-            return fallbackTrimmed.isEmpty ? defaultValue : fallbackTrimmed
-        }
-
-        private static func normalizedAnsiPalette(hexCSV: String, fallbackPalette: [String]) -> [String] {
-            let palette = hexCSV
-                .split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            return palette.count == 16 ? palette : fallbackPalette
         }
 
         var body: some View {
@@ -269,8 +217,7 @@ import Textual
             SSHMacTerminalContainer(
                 request: sessionStore.activeRequest,
                 pendingCommand: sessionStore.pendingCommand,
-                sessionStore: sessionStore,
-                style: terminalStyle
+                sessionStore: sessionStore
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(.horizontal)
@@ -889,57 +836,48 @@ import Textual
         }
     }
 
-    private struct TerminalVisualStyle: Equatable {
-        let fontSize: CGFloat
-        let foregroundHex: String
-        let backgroundHex: String
-        let ansiPaletteHex: [String]
-    }
-
-    private enum DefaultTerminalTheme {
-        static let darkForegroundHex = "#00FF66"
-        static let darkBackgroundHex = "darkBackground"
-        static let darkAnsiPalette: [String] = [
-            "#000000", "#CC0000", "#4E9A06", "#C4A000",
-            "#3465A4", "#75507B", "#06989A", "#D3D7CF",
-            "#555753", "#EF2929", "#8AE234", "#FCE94F",
-            "#729FCF", "#AD7FA8", "#34E2E2", "#EEEEEC",
-        ]
-        static let lightForegroundHex = "#1F2328"
-        static let lightBackgroundHex = "lightBackground"
-        static let lightAnsiPalette: [String] = [
-            "#1F2328", "#B42318", "#2E7D32", "#9A6700",
-            "#175CD3", "#A12CCB", "#0E7090", "#9EA7B3",
-            "#4B5563", "#D92D20", "#3FB950", "#C69026",
-            "#1F6FEB", "#BC4CFF", "#1F9EC9", "#FFFFFF",
-        ]
-
-        static let ansiPalette = darkAnsiPalette
-        static let ansiPaletteCSV = darkAnsiPalette.joined(separator: ",")
-        static let darkAnsiPaletteCSV = darkAnsiPalette.joined(separator: ",")
-        static let lightAnsiPaletteCSV = lightAnsiPalette.joined(separator: ",")
-    }
-
     private final class SSHLoggingTerminalView: LocalProcessTerminalView {
         private let feedChunkSize = 1024
-        private var appliedStyle: TerminalVisualStyle?
         weak var sessionStore: TerminalSessionStore?
 
-        func apply(style: TerminalVisualStyle) {
-            guard appliedStyle != style else { return }
-            appliedStyle = style
+        func applySystemPalette() {
+            let style = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) ?? .aqua
+            let pair = TerminalPalette.palette(for: style)
+            let isDark = (style == .darkAqua)
 
-            nativeForegroundColor = NSColor(hex: style.foregroundHex) ?? .systemGreen
-            nativeBackgroundColor = NSColor(hex: style.backgroundHex) ?? .windowBackgroundColor
-            caretColor = nativeForegroundColor
-            font = NSFont.monospacedSystemFont(ofSize: max(10, style.fontSize), weight: .regular)
+            setColors(
+                foreground: isDark ? pair.darkFG : pair.lightFG,
+                background: isDark ? pair.darkBG : pair.lightBG,
+                cursor: .white,
+                selection: .selectedTextBackgroundColor,
+                palette: isDark ? pair.dark : pair.light
+            )
+        }
 
-            let palette = style.ansiPaletteHex
-                .compactMap(NSColor.init(hex:))
-                .map { $0.terminalColorValue }
-            if palette.count == 16 {
-                installColors(palette)
-            }
+        private func setColors(
+            foreground: NSColor,
+            background: NSColor,
+            cursor: NSColor,
+            selection: NSColor,
+            palette: [NSColor]
+        ) {
+            guard palette.count == 16 else { return }
+
+            nativeForegroundColor = foreground
+            nativeBackgroundColor = background
+            caretColor = cursor
+            selectedTextBackgroundColor = selection
+            installColors(palette.map(\.terminalColorValue))
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            applySystemPalette()
+        }
+
+        override func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            applySystemPalette()
         }
 
         override func dataReceived(slice: ArraySlice<UInt8>) {
@@ -995,6 +933,7 @@ import Textual
         override func viewDidAppear() {
             super.viewDidAppear()
             TerminalHostViewController.visibleTerminal = terminalView
+            terminalView.applySystemPalette()
             focusTerminalInput()
         }
 
@@ -1051,7 +990,6 @@ import Textual
         let request: TerminalSessionRequest?
         let pendingCommand: PendingCommand?
         @ObservedObject var sessionStore: TerminalSessionStore
-        let style: TerminalVisualStyle
 
         func makeCoordinator() -> Coordinator {
             Coordinator(sessionStore: sessionStore)
@@ -1062,7 +1000,8 @@ import Textual
             terminal.getTerminal().silentLog = true
             terminal.getTerminal().setCursorStyle(.steadyBlock)
             terminal.sessionStore = sessionStore
-            terminal.apply(style: style)
+            terminal.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+            terminal.applySystemPalette()
             terminal.feed(text: "[Terminal] Ready. Connect SSH or start Local Shell.\r\n")
             let controller = TerminalHostViewController(terminalView: terminal)
             context.coordinator.bind(sessionStore: sessionStore, terminal: terminal, hostController: controller)
@@ -1070,7 +1009,7 @@ import Textual
         }
 
         func updateNSViewController(_ controller: TerminalHostViewController, context: Context) {
-            controller.terminalView.apply(style: style)
+            controller.terminalView.applySystemPalette()
             context.coordinator.bind(sessionStore: sessionStore, terminal: controller.terminalView, hostController: controller)
             context.coordinator.apply(request: request, pendingCommand: pendingCommand)
         }
@@ -1234,42 +1173,6 @@ import Textual
     }
 
     private extension NSColor {
-        convenience nonisolated init?(hex: String) {
-            let token = hex.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-
-            if token == "lightbackground" {
-                self.init(cgColor: NSColor.windowBackgroundColor.cgColor)
-                return
-            }
-            if token == "darkbackground" {
-                self.init(cgColor: NSColor.windowBackgroundColor.cgColor)
-                return
-            }
-            let sanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "#", with: "")
-            guard sanitized.count == 6 || sanitized.count == 8 else { return nil }
-            guard let value = UInt32(sanitized, radix: 16) else { return nil }
-
-            let r, g, b, a: UInt32
-            if sanitized.count == 8 {
-                r = (value >> 24) & 0xFF
-                g = (value >> 16) & 0xFF
-                b = (value >> 8) & 0xFF
-                a = value & 0xFF
-            } else {
-                r = (value >> 16) & 0xFF
-                g = (value >> 8) & 0xFF
-                b = value & 0xFF
-                a = 0xFF
-            }
-
-            self.init(
-                red: CGFloat(r) / 255.0,
-                green: CGFloat(g) / 255.0,
-                blue: CGFloat(b) / 255.0,
-                alpha: CGFloat(a) / 255.0
-            )
-        }
-
         nonisolated var terminalColorValue: SwiftTerm.Color {
             guard let color = usingColorSpace(.deviceRGB) else {
                 return SwiftTerm.Color(red: 0, green: 0, blue: 0)
