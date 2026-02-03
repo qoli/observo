@@ -665,11 +665,9 @@ import Textual
                 let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 normalized = value.isEmpty ? nil : TerminalEvent(kind: .command(value))
             case let .stdout(text):
-                let cleaned = text.cleanedForSemanticLog
-                normalized = cleaned.isEmpty ? nil : TerminalEvent(kind: .stdout(cleaned))
+                normalized = text.isEmpty ? nil : TerminalEvent(kind: .stdout(text))
             case let .stderr(text):
-                let cleaned = text.cleanedForSemanticLog
-                normalized = cleaned.isEmpty ? nil : TerminalEvent(kind: .stderr(cleaned))
+                normalized = text.isEmpty ? nil : TerminalEvent(kind: .stderr(text))
             }
 
             guard let normalized else { return }
@@ -679,8 +677,15 @@ import Textual
                 events.removeFirst(events.count - maxStoredEvents)
             }
 
-            hasEvents = !events.isEmpty
-            eventCount = events.count
+            if !hasEvents {
+                hasEvents = true
+            }
+
+            let count = events.count
+            // Avoid publishing every single line while burst output is flowing.
+            if count - eventCount >= 25 || count < eventCount {
+                eventCount = count
+            }
 
 //            switch normalized.kind {
 //            case let .command(value):
@@ -702,9 +707,15 @@ import Textual
                 case let .command(value):
                     blocks.append("[CMD] \(value)")
                 case let .stdout(value):
-                    blocks.append("[OUT]\n\(value)")
+                    let cleaned = value.cleanedForSemanticLog
+                    if !cleaned.isEmpty {
+                        blocks.append("[OUT]\n\(cleaned)")
+                    }
                 case let .stderr(value):
-                    blocks.append("[ERR]\n\(value)")
+                    let cleaned = value.cleanedForSemanticLog
+                    if !cleaned.isEmpty {
+                        blocks.append("[ERR]\n\(cleaned)")
+                    }
                 }
             }
 
@@ -727,7 +738,9 @@ import Textual
         }
 
         func markRemoteOutputReceived() {
-            canSendCommand = true
+            if !canSendCommand {
+                canSendCommand = true
+            }
         }
 
         func setConnectionDescriptor(_ descriptor: String?) {
@@ -758,6 +771,10 @@ import Textual
 
     private extension String {
         var cleanedForSemanticLog: String {
+            if !contains("\u{001B}") && !contains("\r") {
+                return trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+
             var output = self
             let patterns = [
                 #"\u{001B}\[[0-?]*[ -/]*[@-~]"#,
@@ -837,11 +854,18 @@ import Textual
     }
 
     private final class SSHLoggingTerminalView: LocalProcessTerminalView {
-        private let feedChunkSize = 1024
+        private let stdoutLogQueue = DispatchQueue(label: "observo.terminal.stdout-log")
+        private let stdoutLogFlushInterval: TimeInterval = 0.08
+        private let stdoutLogImmediateFlushBytes = 4096
+        private var pendingStdoutForLog = ""
+        private var pendingStdoutFlushWorkItem: DispatchWorkItem?
+        private var appliedPaletteStyle: NSAppearance.Name?
         weak var sessionStore: TerminalSessionStore?
 
         func applySystemPalette() {
             let style = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) ?? .aqua
+            guard style != appliedPaletteStyle else { return }
+            appliedPaletteStyle = style
             let pair = TerminalPalette.palette(for: style)
             let isDark = (style == .darkAqua)
 
@@ -883,18 +907,47 @@ import Textual
         override func dataReceived(slice: ArraySlice<UInt8>) {
             let text = String(decoding: slice, as: UTF8.self)
             if !text.isEmpty {
-                Task { @MainActor in
-                    sessionStore?.markRemoteOutputReceived()
-                    sessionStore?.append(TerminalEvent(kind: .stdout(text)))
-                }
+                enqueueStdoutForLog(text)
             }
 
-            var next = slice.startIndex
-            let end = slice.endIndex
-            while next < end {
-                let chunkEnd = min(next + feedChunkSize, end)
-                feed(byteArray: slice[next ..< chunkEnd])
-                next = chunkEnd
+            // Parsing the full slice avoids extra per-chunk overhead under heavy redraw streams.
+            feed(byteArray: slice)
+        }
+
+        private func enqueueStdoutForLog(_ text: String) {
+            stdoutLogQueue.async { [weak self] in
+                guard let self else { return }
+                self.pendingStdoutForLog += text
+
+                if self.pendingStdoutForLog.utf8.count >= self.stdoutLogImmediateFlushBytes {
+                    self.flushPendingStdoutForLog()
+                    return
+                }
+
+                self.scheduleStdoutLogFlushIfNeeded()
+            }
+        }
+
+        private func scheduleStdoutLogFlushIfNeeded() {
+            guard pendingStdoutFlushWorkItem == nil else { return }
+
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.pendingStdoutFlushWorkItem = nil
+                self.flushPendingStdoutForLog()
+            }
+            pendingStdoutFlushWorkItem = workItem
+            stdoutLogQueue.asyncAfter(deadline: .now() + stdoutLogFlushInterval, execute: workItem)
+        }
+
+        private func flushPendingStdoutForLog() {
+            guard !pendingStdoutForLog.isEmpty else { return }
+            let merged = pendingStdoutForLog
+            pendingStdoutForLog.removeAll(keepingCapacity: true)
+
+            Task { @MainActor in
+                sessionStore?.markRemoteOutputReceived()
+                sessionStore?.append(TerminalEvent(kind: .stdout(merged)))
             }
         }
     }
@@ -999,6 +1052,8 @@ import Textual
             let terminal = SSHLoggingTerminalView(frame: .zero)
             terminal.getTerminal().silentLog = true
             terminal.getTerminal().setCursorStyle(.steadyBlock)
+            // Faster for tmux-like full-screen redraws; keeps glyph rendering on the platform text stack.
+            terminal.customBlockGlyphs = false
             terminal.sessionStore = sessionStore
             terminal.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
             terminal.applySystemPalette()
