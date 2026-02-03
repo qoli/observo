@@ -138,6 +138,26 @@ import Textual
             sessionStore.commandInput = ""
         }
 
+        private func printTerminalPlainText() {
+            guard
+                let terminal = TerminalHostViewController.visibleTerminal
+            else {
+                print("[Terminal Plain Text] No visible terminal buffer.")
+                return
+            }
+
+            let data = terminal.getTerminal().getBufferAsData()
+            guard
+                let raw = String(data: data, encoding: .utf8)
+            else {
+                print("[Terminal Plain Text] No visible terminal buffer.")
+                return
+            }
+
+            let plain = raw.strippingANSIEscapeCodes
+            print("[Terminal Plain Text]\n\(plain)")
+        }
+
         @ViewBuilder
         private var connectionPanel: some View {
             VStack {
@@ -181,17 +201,27 @@ import Textual
                 ExpandTextField(
                     value: $sessionStore.commandInput,
                     placeholder: "Type command here (Enter newline, Cmd+Enter send)",
-                    lineLimit: 3
+                    lineLimit: 3,
+                    onCommandEnter: sendCommand
                 )
 
-                Button {
-                    sendCommand()
-                } label: {
-                    Label("Send", systemImage: "paperplane.fill")
+                HStack(spacing: 8) {
+                    Button {
+                        sendCommand()
+                    } label: {
+                        Label("Send", systemImage: "paperplane.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.return, modifiers: [.command])
+                    .disabled(sessionStore.commandInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    Button {
+                        printTerminalPlainText()
+                    } label: {
+                        Label("Print", systemImage: "printer")
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.return, modifiers: [.command])
-                .disabled(sessionStore.commandInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                 if !sessionStore.canSendCommand {
                     Label("Waiting for SSH prompt...", systemImage: "clock")
@@ -221,18 +251,158 @@ import Textual
         @Binding var value: String
         let placeholder: String
         let lineLimit: Int
-        @FocusState private var isFocused: Bool
+        var onCommandEnter: (() -> Void)?
+        @State private var measuredContentHeight: CGFloat = 0
+
+        private var lineHeight: CGFloat {
+            let font = NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+            return ceil(font.ascender - font.descender + font.leading)
+        }
+
+        private var minimumHeight: CGFloat {
+            max(44, lineHeight * CGFloat(max(1, lineLimit)) + 16)
+        }
+
+        private var maximumHeight: CGFloat {
+            lineHeight * 12 + 16
+        }
+
+        private var resolvedHeight: CGFloat {
+            max(minimumHeight, min(maximumHeight, measuredContentHeight))
+        }
 
         var body: some View {
-            TextField(placeholder, text: $value, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(.body, design: .monospaced))
-                .lineLimit(lineLimit, reservesSpace: true)
-                .focused($isFocused)
-                .onSubmit(of: .text) {
-                    value.append("\n")
-                    isFocused = true
+            ZStack(alignment: .topLeading) {
+                ExpandTextViewRepresentable(
+                    text: $value,
+                    onCommandEnter: onCommandEnter,
+                    onHeightChange: { height in
+                        measuredContentHeight = height
+                    }
+                )
+                .frame(height: resolvedHeight)
+
+                if value.isEmpty {
+                    Text(placeholder)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .allowsHitTesting(false)
                 }
+            }
+            .background(Color(nsColor: .textBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+            }
+        }
+    }
+
+    private struct ExpandTextViewRepresentable: NSViewRepresentable {
+        @Binding var text: String
+        var onCommandEnter: (() -> Void)?
+        var onHeightChange: (CGFloat) -> Void
+
+        func makeCoordinator() -> Coordinator {
+            Coordinator(text: $text, onHeightChange: onHeightChange)
+        }
+
+        func makeNSView(context: Context) -> NSScrollView {
+            let scrollView = NSScrollView()
+            scrollView.drawsBackground = false
+            scrollView.hasVerticalScroller = true
+            scrollView.hasHorizontalScroller = false
+            scrollView.autohidesScrollers = true
+            scrollView.borderType = .noBorder
+
+            let textView = CommandTextView()
+            textView.delegate = context.coordinator
+            textView.commandEnterHandler = onCommandEnter
+            textView.isRichText = false
+            textView.importsGraphics = false
+            textView.isAutomaticTextReplacementEnabled = false
+            textView.isAutomaticDashSubstitutionEnabled = false
+            textView.isAutomaticQuoteSubstitutionEnabled = false
+            textView.isAutomaticSpellingCorrectionEnabled = false
+            textView.allowsUndo = true
+            textView.backgroundColor = .clear
+            textView.font = NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+            textView.textContainerInset = NSSize(width: 6, height: 6)
+            textView.isHorizontallyResizable = false
+            textView.isVerticallyResizable = true
+            textView.autoresizingMask = [.width]
+            textView.textContainer?.widthTracksTextView = true
+            textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+            textView.string = text
+
+            scrollView.documentView = textView
+            context.coordinator.reportHeightIfNeeded(for: textView)
+            return scrollView
+        }
+
+        func updateNSView(_ scrollView: NSScrollView, context: Context) {
+            guard let textView = scrollView.documentView as? CommandTextView else { return }
+            textView.commandEnterHandler = onCommandEnter
+            if textView.string != text {
+                textView.string = text
+                context.coordinator.reportHeightIfNeeded(for: textView)
+            }
+            context.coordinator.onHeightChange = onHeightChange
+        }
+
+        final class Coordinator: NSObject, NSTextViewDelegate {
+            private var text: Binding<String>
+            var onHeightChange: (CGFloat) -> Void
+            private var lastHeight: CGFloat = 0
+
+            init(text: Binding<String>, onHeightChange: @escaping (CGFloat) -> Void) {
+                self.text = text
+                self.onHeightChange = onHeightChange
+            }
+
+            func textDidChange(_ notification: Notification) {
+                guard let textView = notification.object as? NSTextView else { return }
+                text.wrappedValue = textView.string
+                reportHeightIfNeeded(for: textView)
+            }
+
+            func reportHeightIfNeeded(for textView: NSTextView) {
+                let contentHeight = measuredHeight(for: textView)
+                guard abs(contentHeight - lastHeight) > 0.5 else { return }
+                lastHeight = contentHeight
+                DispatchQueue.main.async { [onHeightChange] in
+                    onHeightChange(contentHeight)
+                }
+            }
+
+            private func measuredHeight(for textView: NSTextView) -> CGFloat {
+                guard let layoutManager = textView.layoutManager,
+                      let textContainer = textView.textContainer
+                else {
+                    return 44
+                }
+
+                layoutManager.ensureLayout(for: textContainer)
+                let usedRect = layoutManager.usedRect(for: textContainer)
+                let inset = textView.textContainerInset.height * 2
+                let height = ceil(usedRect.height + inset)
+                return max(44, height)
+            }
+        }
+    }
+
+    private final class CommandTextView: NSTextView {
+        var commandEnterHandler: (() -> Void)?
+
+        override func keyDown(with event: NSEvent) {
+            let isReturn = event.keyCode == 36 || event.keyCode == 76
+            let commandPressed = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command)
+            if isReturn, commandPressed {
+                commandEnterHandler?()
+                return
+            }
+            super.keyDown(with: event)
         }
     }
 
@@ -347,9 +517,9 @@ import Textual
         }
 
         private func askModel() {
-            let transcript = sessionStore.transcriptForModel(maxEvents: 300, maxCharacters: 12000)
+            let transcript = currentTerminalPlainText(maxCharacters: 12000)
             guard !transcript.isEmpty else {
-                modelError = "目前沒有可分析的終端輸出。"
+                modelError = "目前沒有可分析的終端純文本輸出。"
                 return
             }
 
@@ -358,6 +528,14 @@ import Textual
                 modelError = "提示詞不能為空。"
                 return
             }
+
+            let fullPrompt = """
+            \(prompt)
+
+            --- Terminal Transcript ---
+            \(transcript)
+            """
+            print("[AskModel Prompt]\n\(fullPrompt)")
 
             isRequestingModel = true
             modelError = nil
@@ -382,6 +560,26 @@ import Textual
                     }
                 }
             }
+        }
+
+        private func currentTerminalPlainText(maxCharacters: Int) -> String {
+            guard
+                let terminal = TerminalHostViewController.visibleTerminal
+            else {
+                return ""
+            }
+
+            let data = terminal.getTerminal().getBufferAsData()
+            guard let raw = String(data: data, encoding: .utf8) else {
+                return ""
+            }
+
+            let plain = raw.strippingANSIEscapeCodes.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !plain.isEmpty else { return "" }
+            if plain.count <= maxCharacters {
+                return plain
+            }
+            return String(plain.suffix(maxCharacters))
         }
     }
 
@@ -494,14 +692,14 @@ import Textual
             hasEvents = !events.isEmpty
             eventCount = events.count
 
-            switch normalized.kind {
-            case let .command(value):
-                print("[CMD] \(value)")
-            case let .stdout(value):
-                print("[OUT]\n\(value)")
-            case let .stderr(value):
-                print("[ERR]\n\(value)")
-            }
+//            switch normalized.kind {
+//            case let .command(value):
+//                print("[CMD] \(value)")
+//            case let .stdout(value):
+//                print("[OUT]\n\(value)")
+//            case let .stderr(value):
+//                print("[ERR]\n\(value)")
+//            }
         }
 
         func transcriptForModel(maxEvents: Int, maxCharacters: Int) -> String {
@@ -583,6 +781,21 @@ import Textual
             output = output.replacingOccurrences(of: "\r", with: "")
             output = output.trimmingCharacters(in: .whitespacesAndNewlines)
             return output
+        }
+
+        var strippingANSIEscapeCodes: String {
+            var output = self
+            let patterns = [
+                #"\u{001B}\[[0-?]*[ -/]*[@-~]"#,
+                #"\u{001B}\][^\u{0007}]*\u{0007}"#,
+                #"\u{001B}\][^\u{001B}]*\u{001B}\\"#,
+            ]
+
+            for pattern in patterns {
+                output = output.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+            }
+
+            return output.replacingOccurrences(of: "\r", with: "")
         }
     }
 
