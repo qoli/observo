@@ -1173,10 +1173,7 @@ import Textual
     private extension NSColor {
         convenience nonisolated init?(hex: String) {
             let token = hex.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if token == "systembackground" {
-                self.init(cgColor: NSColor.windowBackgroundColor.cgColor)
-                return
-            }
+
             if token == "lightbackground" {
                 self.init(cgColor: NSColor.windowBackgroundColor.cgColor)
                 return
