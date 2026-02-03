@@ -34,10 +34,10 @@ import Textual
         @AppStorage("terminal.ansiPaletteHexCSV") private var terminalAnsiPaletteHexCSV = DefaultTerminalTheme.ansiPaletteCSV
         // Appearance-specific keys.
         @AppStorage("terminal.dark.foregroundHex") private var terminalDarkForegroundHex = ""
-        @AppStorage("terminal.dark.backgroundHex") private var terminalDarkBackgroundHex = "systemBackground"
+        @AppStorage("terminal.dark.backgroundHex") private var terminalDarkBackgroundHex = "darkBackground"
         @AppStorage("terminal.dark.ansiPaletteHexCSV") private var terminalDarkAnsiPaletteHexCSV = ""
         @AppStorage("terminal.light.foregroundHex") private var terminalLightForegroundHex = DefaultTerminalTheme.lightForegroundHex
-        @AppStorage("terminal.light.backgroundHex") private var terminalLightBackgroundHex = "systemBackground"
+        @AppStorage("terminal.light.backgroundHex") private var terminalLightBackgroundHex = "lightBackground"
         @AppStorage("terminal.light.ansiPaletteHexCSV") private var terminalLightAnsiPaletteHexCSV = DefaultTerminalTheme.lightAnsiPaletteCSV
 
         private var canConnect: Bool {
@@ -99,7 +99,7 @@ import Textual
         }
 
         var body: some View {
-            VStack {
+            VStack(spacing: 0) {
                 if isConnected {
                     connectedSessionPanel
                 } else {
@@ -229,7 +229,8 @@ import Textual
                         .foregroundStyle(.secondary)
                 }
             }
-            .padding()
+            .padding(.horizontal)
+            .padding(.bottom)
         }
 
         @ViewBuilder
@@ -241,7 +242,7 @@ import Textual
                 style: terminalStyle
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding()
+            .padding(.horizontal)
 
             commandComposer
         }
@@ -855,7 +856,7 @@ import Textual
 
     private enum DefaultTerminalTheme {
         static let darkForegroundHex = "#00FF66"
-        static let darkBackgroundHex = "systemBackground"
+        static let darkBackgroundHex = "darkBackground"
         static let darkAnsiPalette: [String] = [
             "#000000", "#CC0000", "#4E9A06", "#C4A000",
             "#3465A4", "#75507B", "#06989A", "#D3D7CF",
@@ -863,7 +864,7 @@ import Textual
             "#729FCF", "#AD7FA8", "#34E2E2", "#EEEEEC",
         ]
         static let lightForegroundHex = "#1F2328"
-        static let lightBackgroundHex = "systemBackground"
+        static let lightBackgroundHex = "lightBackground"
         static let lightAnsiPalette: [String] = [
             "#1F2328", "#B42318", "#2E7D32", "#9A6700",
             "#175CD3", "#A12CCB", "#0E7090", "#9EA7B3",
@@ -887,7 +888,7 @@ import Textual
             appliedStyle = style
 
             nativeForegroundColor = NSColor(hex: style.foregroundHex) ?? .systemGreen
-            nativeBackgroundColor = NSColor(hex: style.backgroundHex) ?? .black
+            nativeBackgroundColor = NSColor(hex: style.backgroundHex) ?? .windowBackgroundColor
             caretColor = nativeForegroundColor
             font = NSFont.monospacedSystemFont(ofSize: max(10, style.fontSize), weight: .regular)
 
@@ -1176,7 +1177,14 @@ import Textual
                 self.init(cgColor: NSColor.windowBackgroundColor.cgColor)
                 return
             }
-
+            if token == "lightbackground" {
+                self.init(cgColor: NSColor.windowBackgroundColor.cgColor)
+                return
+            }
+            if token == "darkbackground" {
+                self.init(cgColor: NSColor.windowBackgroundColor.cgColor)
+                return
+            }
             let sanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "#", with: "")
             guard sanitized.count == 6 || sanitized.count == 8 else { return nil }
             guard let value = UInt32(sanitized, radix: 16) else { return nil }
