@@ -85,6 +85,14 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var topLevelToolbar: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
+            Button("Disconnect", systemImage: "bolt.slash") {
+                primarySessionStore.requestDisconnect()
+            }
+            .disabled(selectedSession != .primary || !primarySessionStore.isConnected)
+            .help("Disconnect SSH session")
+        }
+
+        ToolbarItem(placement: .primaryAction) {
             Button {
                 showInspector.toggle()
             } label: {

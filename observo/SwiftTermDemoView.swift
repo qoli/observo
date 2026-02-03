@@ -30,28 +30,28 @@ import SwiftUI
             activeRequest != nil
         }
 
+        private var sessionTitle: String {
+            guard let request = activeRequest else { return "SSH Session" }
+            return "\(request.username)@\(request.host):\(request.port)"
+        }
+
         var body: some View {
             VStack(spacing: 14) {
-                connectionPanel
-
-                SSHMacTerminalContainer(
-                    request: activeRequest,
-                    pendingCommand: pendingCommand,
-                    sessionStore: sessionStore
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(Color.black)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
-                }
-                .overlay(alignment: .bottom) {
-                    commandComposer
+                if isConnected {
+                    connectedSessionPanel
+                } else {
+                    connectionPanel
                 }
             }
             .padding(12)
-            .navigationTitle("SSH Session")
+            .navigationTitle(sessionTitle)
+            .onReceive(sessionStore.$disconnectRequestID.dropFirst()) { _ in
+                guard activeRequest != nil else { return }
+                activeRequest = nil
+            }
+            .onChange(of: activeRequest) { _, newValue in
+                sessionStore.setConnected(newValue != nil)
+            }
         }
 
         private func connect() {
@@ -83,57 +83,36 @@ import SwiftUI
                     .foregroundStyle(isConnected ? .green : .secondary)
                 }
 
-                HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 10) {
                     TextField("Host", text: $host)
                     TextField("Port", text: $port)
-                        .frame(width: 80)
                     TextField("Username", text: $username)
-                        .frame(width: 170)
+                }
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.regular)
+
+                Spacer()
+
+                HStack {
                     Spacer(minLength: 0)
                     Button("Connect") {
                         connect()
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(!canConnect)
-
-                    Button("Disconnect") {
-                        activeRequest = nil
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(!isConnected)
                 }
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.regular)
             }
             .padding(12)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.16), lineWidth: 1)
-            }
         }
 
         @ViewBuilder
         private var commandComposer: some View {
-            HStack(alignment: .bottom, spacing: 10) {
-                ZStack(alignment: .topLeading) {
-                    if commandInput.isEmpty {
-                        Text("Type a command, then click Send (Cmd+Enter)")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 10)
-                            .padding(.leading, 8)
-                    }
-
-                    TextEditor(text: $commandInput)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(minHeight: 68, maxHeight: 68)
-                        .scrollContentBackground(.hidden)
-                        .background(Color.clear)
-                }
-                .padding(6)
-                .background(Color(nsColor: .textBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            VStack(alignment: .leading, spacing: 10) {
+                ExpandTextField(
+                    value: $commandInput,
+                    placeholder: "Type command here (Enter newline, Cmd+Enter send)",
+                    lineLimit: 3
+                )
 
                 Button {
                     sendCommand()
@@ -144,11 +123,39 @@ import SwiftUI
                 .keyboardShortcut(.return, modifiers: [.command])
                 .disabled(commandInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            .padding(10)
-            .background(.ultraThinMaterial)
-            .overlay(alignment: .top) {
-                Divider()
-            }
+        }
+
+        @ViewBuilder
+        private var connectedSessionPanel: some View {
+            SSHMacTerminalContainer(
+                request: activeRequest,
+                pendingCommand: pendingCommand,
+                sessionStore: sessionStore
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Color.black)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+            commandComposer
+        }
+    }
+
+    struct ExpandTextField: View {
+        @Binding var value: String
+        let placeholder: String
+        let lineLimit: Int
+        @FocusState private var isFocused: Bool
+
+        var body: some View {
+            TextField(placeholder, text: $value, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.body, design: .monospaced))
+                .lineLimit(lineLimit, reservesSpace: true)
+                .focused($isFocused)
+                .onSubmit(of: .text) {
+                    value.append("\n")
+                    isFocused = true
+                }
         }
     }
 
@@ -198,7 +205,6 @@ import SwiftUI
                 }
             }
             .padding(12)
-            .navigationTitle("Inspector")
         }
     }
 
@@ -365,6 +371,8 @@ import SwiftUI
     final class TerminalSessionStore: ObservableObject {
         @Published private(set) var hasEvents = false
         @Published private(set) var eventCount = 0
+        @Published private(set) var isConnected = false
+        @Published var disconnectRequestID = UUID()
 
         private var events: [TerminalEvent] = []
         private let maxStoredEvents = 1200
@@ -424,6 +432,14 @@ import SwiftUI
                 return joined
             }
             return String(joined.suffix(maxCharacters))
+        }
+
+        func setConnected(_ connected: Bool) {
+            isConnected = connected
+        }
+
+        func requestDisconnect() {
+            disconnectRequestID = UUID()
         }
     }
 
@@ -605,6 +621,9 @@ import SwiftUI
             func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
 
             func processTerminated(source: TerminalView, exitCode: Int32?) {
+                Task { @MainActor in
+                    sessionStore?.setConnected(false)
+                }
                 if let exitCode {
                     source.feed(text: "\n[SSH] Session ended (exit: \(exitCode)).\n")
                 } else {
@@ -638,6 +657,16 @@ import SwiftUI
     final class TerminalSessionStore: ObservableObject {
         @Published private(set) var hasEvents = false
         @Published private(set) var eventCount = 0
+        @Published private(set) var isConnected = false
+        @Published var disconnectRequestID = UUID()
+
+        func setConnected(_ connected: Bool) {
+            isConnected = connected
+        }
+
+        func requestDisconnect() {
+            disconnectRequestID = UUID()
+        }
     }
 
 #endif
