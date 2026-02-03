@@ -12,6 +12,9 @@ import SwiftUI
 
     struct AppTerminalView: View {
         @ObservedObject var sessionStore: TerminalSessionStore
+        @AppStorage("terminal.fontSize") private var terminalFontSize = 13.0
+        @AppStorage("terminal.foregroundHex") private var terminalForegroundHex = "#00FF66"
+        @AppStorage("terminal.backgroundHex") private var terminalBackgroundHex = "#000000"
 
         private var canConnect: Bool {
             !sessionStore.host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -31,6 +34,14 @@ import SwiftUI
                 return descriptor
             }
             return "SSH Session"
+        }
+
+        private var terminalStyle: TerminalVisualStyle {
+            TerminalVisualStyle(
+                fontSize: CGFloat(terminalFontSize),
+                foregroundHex: terminalForegroundHex,
+                backgroundHex: terminalBackgroundHex
+            )
         }
 
         var body: some View {
@@ -135,7 +146,8 @@ import SwiftUI
             SSHMacTerminalContainer(
                 request: sessionStore.activeRequest,
                 pendingCommand: sessionStore.pendingCommand,
-                sessionStore: sessionStore
+                sessionStore: sessionStore,
+                style: terminalStyle
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 //            .background(Color.black)
@@ -541,146 +553,280 @@ import SwiftUI
         }
     }
 
+    private struct TerminalVisualStyle: Equatable {
+        let fontSize: CGFloat
+        let foregroundHex: String
+        let backgroundHex: String
+    }
+
     private final class SSHLoggingTerminalView: LocalProcessTerminalView {
+        private let feedChunkSize = 1024
         weak var sessionStore: TerminalSessionStore?
 
+        func apply(style: TerminalVisualStyle) {
+            nativeForegroundColor = NSColor(hex: style.foregroundHex) ?? .systemGreen
+            nativeBackgroundColor = NSColor(hex: style.backgroundHex) ?? .black
+            caretColor = nativeForegroundColor
+            font = NSFont.monospacedSystemFont(ofSize: max(10, style.fontSize), weight: .regular)
+        }
+
         override func dataReceived(slice: ArraySlice<UInt8>) {
-            super.dataReceived(slice: slice)
             let text = String(decoding: slice, as: UTF8.self)
-            guard !text.isEmpty else { return }
-            Task { @MainActor in
-                sessionStore?.append(TerminalEvent(kind: .stdout(text)))
+            if !text.isEmpty {
+                Task { @MainActor in
+                    sessionStore?.append(TerminalEvent(kind: .stdout(text)))
+                }
+            }
+
+            var next = slice.startIndex
+            let end = slice.endIndex
+            while next < end {
+                let chunkEnd = min(next + feedChunkSize, end)
+                feed(byteArray: slice[next..<chunkEnd])
+                next = chunkEnd
             }
         }
     }
 
-    private struct SSHMacTerminalContainer: NSViewRepresentable {
+    private final class TerminalHostViewController: NSViewController {
+        static weak var visibleTerminal: SSHLoggingTerminalView?
+
+        let terminalView: SSHLoggingTerminalView
+
+        init(terminalView: SSHLoggingTerminalView) {
+            self.terminalView = terminalView
+            super.init(nibName: nil, bundle: nil)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func loadView() {
+            view = NSView()
+        }
+
+        override func viewDidLoad() {
+            super.viewDidLoad()
+            terminalView.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(terminalView)
+            NSLayoutConstraint.activate([
+                terminalView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                terminalView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                terminalView.topAnchor.constraint(equalTo: view.topAnchor),
+                terminalView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            ])
+        }
+
+        override func viewDidAppear() {
+            super.viewDidAppear()
+            TerminalHostViewController.visibleTerminal = terminalView
+            focusTerminalInput()
+        }
+
+        override func viewWillDisappear() {
+            super.viewWillDisappear()
+            if TerminalHostViewController.visibleTerminal === terminalView {
+                TerminalHostViewController.visibleTerminal = nil
+            }
+        }
+
+        func focusTerminalInput() {
+            if let window = view.window {
+                window.makeFirstResponder(terminalView)
+            } else {
+                _ = terminalView.becomeFirstResponder()
+            }
+        }
+    }
+
+    private struct SSHMacTerminalContainer: NSViewControllerRepresentable {
         let request: SSHSessionRequest?
         let pendingCommand: PendingCommand?
         @ObservedObject var sessionStore: TerminalSessionStore
+        let style: TerminalVisualStyle
 
         func makeCoordinator() -> Coordinator {
             Coordinator(sessionStore: sessionStore)
         }
 
-        func makeNSView(context: Context) -> LocalProcessTerminalView {
+        func makeNSViewController(context: Context) -> TerminalHostViewController {
             let terminal = SSHLoggingTerminalView(frame: .zero)
             terminal.getTerminal().silentLog = true
             terminal.getTerminal().setCursorStyle(.steadyBlock)
-            terminal.processDelegate = context.coordinator
-            terminal.nativeBackgroundColor = .black
-            terminal.nativeForegroundColor = .systemGreen
-            terminal.caretColor = .systemGreen
-            terminal.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
             terminal.sessionStore = sessionStore
+            terminal.apply(style: style)
             terminal.feed(text: "[SSH] Ready. Fill host/port/user and press Connect.\r\n")
-            return terminal
+            let controller = TerminalHostViewController(terminalView: terminal)
+            context.coordinator.bind(sessionStore: sessionStore, terminal: terminal, hostController: controller)
+            return controller
         }
 
-        func updateNSView(_ nsView: LocalProcessTerminalView, context: Context) {
-            if let loggingTerminal = nsView as? SSHLoggingTerminalView {
-                loggingTerminal.sessionStore = sessionStore
-            }
-            context.coordinator.apply(request: request, pendingCommand: pendingCommand, to: nsView)
+        func updateNSViewController(_ controller: TerminalHostViewController, context: Context) {
+            controller.terminalView.apply(style: style)
+            context.coordinator.bind(sessionStore: sessionStore, terminal: controller.terminalView, hostController: controller)
+            context.coordinator.apply(request: request, pendingCommand: pendingCommand)
         }
 
-        final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
-            private var lastRequest: SSHSessionRequest?
-            private var lastCommandID: UUID?
-            private weak var sessionStore: TerminalSessionStore?
+        final class Coordinator {
+            private let ioBridge = SSHIOBridge()
+            private weak var hostController: TerminalHostViewController?
+            private weak var terminalView: SSHLoggingTerminalView?
 
             init(sessionStore: TerminalSessionStore) {
-                self.sessionStore = sessionStore
+                ioBridge.bind(sessionStore: sessionStore)
             }
 
-            func apply(request: SSHSessionRequest?, pendingCommand: PendingCommand?, to terminal: LocalProcessTerminalView) {
-                guard request != lastRequest else {
-                    sendIfNeeded(pendingCommand, to: terminal)
-                    return
-                }
+            func bind(
+                sessionStore: TerminalSessionStore,
+                terminal: SSHLoggingTerminalView,
+                hostController: TerminalHostViewController
+            ) {
+                self.hostController = hostController
+                terminalView = terminal
+                terminal.sessionStore = sessionStore
+                ioBridge.bind(sessionStore: sessionStore)
+                terminal.processDelegate = ioBridge
+            }
 
-                if terminal.process.running {
-                    terminal.terminate()
-                }
-
-                guard let request else {
-                    terminal.feed(text: "\r\n[SSH] Disconnected.\r\n")
-                    lastRequest = nil
-                    Task { @MainActor in
-                        sessionStore?.resetTerminalContext()
+            func apply(request: SSHSessionRequest?, pendingCommand: PendingCommand?) {
+                guard let terminal = terminalView else { return }
+                ioBridge.apply(
+                    request: request,
+                    pendingCommand: pendingCommand,
+                    to: terminal,
+                    focusHandler: { [weak hostController] in
+                        hostController?.focusTerminalInput()
                     }
-                    return
-                }
+                )
+            }
+        }
+    }
 
-                lastRequest = request
-                terminal.feed(text: "\r\n[SSH] Connecting to \(request.username)@\(request.host):\(request.port) ...\r\n")
+    private final class SSHIOBridge: NSObject, LocalProcessTerminalViewDelegate {
+        private var lastRequest: SSHSessionRequest?
+        private var lastCommandID: UUID?
+        private weak var sessionStore: TerminalSessionStore?
 
-                let login = "\(request.username)@\(request.host)"
-                let args = [
-                    "-tt",
-                    "-p", "\(request.port)",
-                    "-o", "ServerAliveInterval=30",
-                    "-o", "ServerAliveCountMax=3",
-                    "-o", "StrictHostKeyChecking=accept-new",
-                    login,
-                ]
+        func bind(sessionStore: TerminalSessionStore) {
+            self.sessionStore = sessionStore
+        }
 
-                terminal.startProcess(executable: "/usr/bin/ssh", args: args)
-                focusTerminal(terminal)
+        func apply(
+            request: SSHSessionRequest?,
+            pendingCommand: PendingCommand?,
+            to terminal: LocalProcessTerminalView,
+            focusHandler: @escaping () -> Void
+        ) {
+            guard request != lastRequest else {
                 sendIfNeeded(pendingCommand, to: terminal)
+                return
             }
 
-            private func focusTerminal(_ terminal: LocalProcessTerminalView) {
+            if terminal.process.running {
+                terminal.terminate()
+            }
+
+            guard let request else {
+                terminal.feed(text: "\r\n[SSH] Disconnected.\r\n")
+                lastRequest = nil
                 Task { @MainActor in
-                    _ = terminal.becomeFirstResponder()
-                }
-            }
-
-            private func sendIfNeeded(_ pendingCommand: PendingCommand?, to terminal: LocalProcessTerminalView) {
-                guard let pendingCommand else { return }
-                guard pendingCommand.id != lastCommandID else { return }
-                lastCommandID = pendingCommand.id
-
-                guard terminal.process.running else {
-                    terminal.feed(text: "[SSH] Not connected. Command ignored.\r\n")
-                    return
-                }
-
-                Task { @MainActor in
-                    sessionStore?.append(TerminalEvent(kind: .command(pendingCommand.text)))
-                }
-                terminal.send(txt: pendingCommand.text + "\n")
-            }
-
-            func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {
-                // LocalProcessTerminalView already updates PTY winsize before this callback.
-                _ = (newCols, newRows)
-            }
-
-            func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
-                Task { @MainActor in
-                    sessionStore?.setTerminalTitle(title)
-                }
-            }
-
-            func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
-                Task { @MainActor in
-                    sessionStore?.setCurrentDirectory(directory)
-                }
-            }
-
-            func processTerminated(source: TerminalView, exitCode: Int32?) {
-                Task { @MainActor in
-                    sessionStore?.activeRequest = nil
-                    sessionStore?.setConnected(false)
                     sessionStore?.resetTerminalContext()
                 }
-                if let exitCode {
-                    source.feed(text: "\r\n[SSH] Session ended (exit: \(exitCode)).\r\n")
-                } else {
-                    source.feed(text: "\r\n[SSH] Session ended.\r\n")
-                }
+                return
             }
+
+            lastRequest = request
+            terminal.feed(text: "\r\n[SSH] Connecting to \(request.username)@\(request.host):\(request.port) ...\r\n")
+
+            let login = "\(request.username)@\(request.host)"
+            let args = [
+                "-tt",
+                "-p", "\(request.port)",
+                "-o", "ServerAliveInterval=30",
+                "-o", "ServerAliveCountMax=3",
+                "-o", "StrictHostKeyChecking=accept-new",
+                login,
+            ]
+
+            terminal.startProcess(executable: "/usr/bin/ssh", args: args)
+            focusHandler()
+            sendIfNeeded(pendingCommand, to: terminal)
+        }
+
+        private func sendIfNeeded(_ pendingCommand: PendingCommand?, to terminal: LocalProcessTerminalView) {
+            guard let pendingCommand else { return }
+            guard pendingCommand.id != lastCommandID else { return }
+            lastCommandID = pendingCommand.id
+
+            guard terminal.process.running else {
+                terminal.feed(text: "[SSH] Not connected. Command ignored.\r\n")
+                return
+            }
+
+            Task { @MainActor in
+                sessionStore?.append(TerminalEvent(kind: .command(pendingCommand.text)))
+            }
+            terminal.send(txt: pendingCommand.text + "\n")
+        }
+
+        func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {
+            // LocalProcessTerminalView already updates PTY winsize before this callback.
+            _ = (newCols, newRows)
+        }
+
+        func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
+            Task { @MainActor in
+                sessionStore?.setTerminalTitle(title)
+            }
+        }
+
+        func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
+            Task { @MainActor in
+                sessionStore?.setCurrentDirectory(directory)
+            }
+        }
+
+        func processTerminated(source: TerminalView, exitCode: Int32?) {
+            Task { @MainActor in
+                sessionStore?.activeRequest = nil
+                sessionStore?.setConnected(false)
+                sessionStore?.resetTerminalContext()
+            }
+            if let exitCode {
+                source.feed(text: "\r\n[SSH] Session ended (exit: \(exitCode)).\r\n")
+            } else {
+                source.feed(text: "\r\n[SSH] Session ended.\r\n")
+            }
+        }
+    }
+
+    private extension NSColor {
+        convenience init?(hex: String) {
+            let sanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "#", with: "")
+            guard sanitized.count == 6 || sanitized.count == 8 else { return nil }
+            guard let value = UInt32(sanitized, radix: 16) else { return nil }
+
+            let r, g, b, a: UInt32
+            if sanitized.count == 8 {
+                r = (value >> 24) & 0xFF
+                g = (value >> 16) & 0xFF
+                b = (value >> 8) & 0xFF
+                a = value & 0xFF
+            } else {
+                r = (value >> 16) & 0xFF
+                g = (value >> 8) & 0xFF
+                b = value & 0xFF
+                a = 0xFF
+            }
+
+            self.init(
+                red: CGFloat(r) / 255.0,
+                green: CGFloat(g) / 255.0,
+                blue: CGFloat(b) / 255.0,
+                alpha: CGFloat(a) / 255.0
+            )
         }
     }
 
