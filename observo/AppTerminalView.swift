@@ -40,10 +40,15 @@ import Textual
         @AppStorage("terminal.light.backgroundHex") private var terminalLightBackgroundHex = "lightBackground"
         @AppStorage("terminal.light.ansiPaletteHexCSV") private var terminalLightAnsiPaletteHexCSV = DefaultTerminalTheme.lightAnsiPaletteCSV
 
-        private var canConnect: Bool {
+        private var canConnectSSH: Bool {
             !sessionStore.host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && !sessionStore.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && Int(sessionStore.port) != nil
+        }
+
+        private var defaultLocalShellPath: String {
+            let shell = ProcessInfo.processInfo.environment["SHELL"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return shell.isEmpty ? "/bin/zsh" : shell
         }
 
         private var isConnected: Bool {
@@ -57,7 +62,7 @@ import Textual
             if let descriptor = sessionStore.connectionDescriptor {
                 return descriptor
             }
-            return "SSH Session"
+            return "Terminal Session"
         }
 
         private var terminalStyle: TerminalVisualStyle {
@@ -114,10 +119,16 @@ import Textual
             }
             .onChange(of: sessionStore.activeRequest) { _, newValue in
                 sessionStore.setConnected(newValue != nil)
-                if let request = newValue {
-                    sessionStore.setConnectionDescriptor("\(request.username)@\(request.host):\(request.port)")
-                } else {
+                guard let request = newValue else {
                     sessionStore.resetTerminalContext()
+                    return
+                }
+
+                switch request {
+                case let .ssh(ssh):
+                    sessionStore.setConnectionDescriptor("\(ssh.username)@\(ssh.host):\(ssh.port)")
+                case let .localShell(local):
+                    sessionStore.setConnectionDescriptor(local.displayName)
                 }
             }
         }
@@ -127,8 +138,23 @@ import Textual
             let cleanHost = sessionStore.host.trimmingCharacters(in: .whitespacesAndNewlines)
             let cleanUser = sessionStore.username.trimmingCharacters(in: .whitespacesAndNewlines)
             sessionStore.markConnecting()
-            sessionStore.activeRequest = SSHSessionRequest(host: cleanHost, port: portValue, username: cleanUser)
+            sessionStore.activeRequest = .ssh(SSHSessionRequest(host: cleanHost, port: portValue, username: cleanUser))
             sessionStore.setConnectionDescriptor("\(cleanUser)@\(cleanHost):\(portValue)")
+        }
+
+        private func connectLocalShell() {
+            let shellPath = defaultLocalShellPath
+            let shellName = URL(fileURLWithPath: shellPath).lastPathComponent
+            let displayName = "Local Shell (\(shellName))"
+            sessionStore.markConnecting()
+            sessionStore.activeRequest = .localShell(
+                LocalShellRequest(
+                    executable: shellPath,
+                    args: ["-l"],
+                    displayName: displayName
+                )
+            )
+            sessionStore.setConnectionDescriptor(displayName)
         }
 
         private func sendCommand() {
@@ -162,7 +188,7 @@ import Textual
         private var connectionPanel: some View {
             VStack {
                 HStack {
-                    Label("SSH Connection", systemImage: "network")
+                    Label("Connection", systemImage: "network")
                         .font(.headline)
                     Spacer()
                     Label(
@@ -183,13 +209,18 @@ import Textual
 
                 Spacer()
 
-                HStack {
+                HStack(spacing: 8) {
                     Spacer(minLength: 0)
+                    Button("Local Shell") {
+                        connectLocalShell()
+                    }
+                    .buttonStyle(.bordered)
+
                     Button("Connect") {
                         connect()
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(!canConnect)
+                    .disabled(!canConnectSSH)
                 }
             }
             .padding(12)
@@ -224,7 +255,7 @@ import Textual
                 }
 
                 if !sessionStore.canSendCommand {
-                    Label("Waiting for SSH prompt...", systemImage: "clock")
+                    Label("Waiting for terminal prompt...", systemImage: "clock")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -633,6 +664,17 @@ import Textual
         let username: String
     }
 
+    struct LocalShellRequest: Equatable {
+        let executable: String
+        let args: [String]
+        let displayName: String
+    }
+
+    enum TerminalSessionRequest: Equatable {
+        case ssh(SSHSessionRequest)
+        case localShell(LocalShellRequest)
+    }
+
     struct PendingCommand: Equatable {
         let id = UUID()
         let text: String
@@ -653,7 +695,7 @@ import Textual
         @Published var host = "127.0.0.1"
         @Published var port = "22"
         @Published var username = NSUserName()
-        @Published var activeRequest: SSHSessionRequest?
+        @Published var activeRequest: TerminalSessionRequest?
         @Published var commandInput = ""
         @Published var pendingCommand: PendingCommand?
 
@@ -1006,7 +1048,7 @@ import Textual
     }
 
     private struct SSHMacTerminalContainer: NSViewControllerRepresentable {
-        let request: SSHSessionRequest?
+        let request: TerminalSessionRequest?
         let pendingCommand: PendingCommand?
         @ObservedObject var sessionStore: TerminalSessionStore
         let style: TerminalVisualStyle
@@ -1021,7 +1063,7 @@ import Textual
             terminal.getTerminal().setCursorStyle(.steadyBlock)
             terminal.sessionStore = sessionStore
             terminal.apply(style: style)
-            terminal.feed(text: "[SSH] Ready. Fill host/port/user and press Connect.\r\n")
+            terminal.feed(text: "[Terminal] Ready. Connect SSH or start Local Shell.\r\n")
             let controller = TerminalHostViewController(terminalView: terminal)
             context.coordinator.bind(sessionStore: sessionStore, terminal: terminal, hostController: controller)
             return controller
@@ -1054,7 +1096,7 @@ import Textual
                 terminal.processDelegate = ioBridge
             }
 
-            func apply(request: SSHSessionRequest?, pendingCommand: PendingCommand?) {
+            func apply(request: TerminalSessionRequest?, pendingCommand: PendingCommand?) {
                 guard let terminal = terminalView else { return }
                 ioBridge.apply(
                     request: request,
@@ -1069,7 +1111,7 @@ import Textual
     }
 
     private final class SSHIOBridge: NSObject, LocalProcessTerminalViewDelegate {
-        private var lastRequest: SSHSessionRequest?
+        private var lastRequest: TerminalSessionRequest?
         private var lastCommandID: UUID?
         private weak var sessionStore: TerminalSessionStore?
 
@@ -1078,7 +1120,7 @@ import Textual
         }
 
         func apply(
-            request: SSHSessionRequest?,
+            request: TerminalSessionRequest?,
             pendingCommand: PendingCommand?,
             to terminal: LocalProcessTerminalView,
             focusHandler: @escaping () -> Void
@@ -1093,7 +1135,8 @@ import Textual
             }
 
             guard let request else {
-                terminal.feed(text: "\r\n[SSH] Disconnected.\r\n")
+                let prefix = sessionPrefix(for: lastRequest)
+                terminal.feed(text: "\r\n\(prefix) Disconnected.\r\n")
                 lastRequest = nil
                 Task { @MainActor in
                     sessionStore?.resetTerminalContext()
@@ -1102,21 +1145,39 @@ import Textual
             }
 
             lastRequest = request
-            terminal.feed(text: "\r\n[SSH] Connecting to \(request.username)@\(request.host):\(request.port) ...\r\n")
 
-            let login = "\(request.username)@\(request.host)"
-            let args = [
-                "-tt",
-                "-p", "\(request.port)",
-                "-o", "ServerAliveInterval=30",
-                "-o", "ServerAliveCountMax=3",
-                "-o", "StrictHostKeyChecking=accept-new",
-                login,
-            ]
+            switch request {
+            case let .ssh(ssh):
+                terminal.feed(text: "\r\n[SSH] Connecting to \(ssh.username)@\(ssh.host):\(ssh.port) ...\r\n")
 
-            terminal.startProcess(executable: "/usr/bin/ssh", args: args)
+                let login = "\(ssh.username)@\(ssh.host)"
+                let args = [
+                    "-tt",
+                    "-p", "\(ssh.port)",
+                    "-o", "ServerAliveInterval=30",
+                    "-o", "ServerAliveCountMax=3",
+                    "-o", "StrictHostKeyChecking=accept-new",
+                    login,
+                ]
+
+                terminal.startProcess(executable: "/usr/bin/ssh", args: args)
+            case let .localShell(local):
+                terminal.feed(text: "\r\n[Local Shell] Starting \(local.displayName)...\r\n")
+                terminal.startProcess(executable: local.executable, args: local.args)
+            }
+
             focusHandler()
             sendIfNeeded(pendingCommand, to: terminal)
+        }
+
+        private func sessionPrefix(for request: TerminalSessionRequest?) -> String {
+            guard let request else { return "[Terminal]" }
+            switch request {
+            case .ssh:
+                return "[SSH]"
+            case .localShell:
+                return "[Local Shell]"
+            }
         }
 
         private func sendIfNeeded(_ pendingCommand: PendingCommand?, to terminal: LocalProcessTerminalView) {
@@ -1157,15 +1218,17 @@ import Textual
         }
 
         func processTerminated(source: TerminalView, exitCode: Int32?) {
+            let prefix = sessionPrefix(for: lastRequest)
+            lastRequest = nil
             Task { @MainActor in
                 sessionStore?.activeRequest = nil
                 sessionStore?.setConnected(false)
                 sessionStore?.resetTerminalContext()
             }
             if let exitCode {
-                source.feed(text: "\r\n[SSH] Session ended (exit: \(exitCode)).\r\n")
+                source.feed(text: "\r\n\(prefix) Session ended (exit: \(exitCode)).\r\n")
             } else {
-                source.feed(text: "\r\n[SSH] Session ended.\r\n")
+                source.feed(text: "\r\n\(prefix) Session ended.\r\n")
             }
         }
     }

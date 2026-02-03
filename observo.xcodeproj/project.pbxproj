@@ -7,8 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		EA106B712F32169300C06CEE /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = EA106B702F32169300C06CEE /* SwiftTerm */; };
 		EA2AE02E2F31F1DA0044D3FC /* Textual in Frameworks */ = {isa = PBXBuildFile; productRef = EA2AE02D2F31F1DA0044D3FC /* Textual */; };
-		EA3B6A502F31C9AC0044D3FC /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = EA3B6A4F2F31C9AC0044D3FC /* SwiftTerm */; };
 		EA5D7C132F31FC760044D3FC /* AnyLanguageModel in Frameworks */ = {isa = PBXBuildFile; productRef = EA5D7C122F31FC760044D3FC /* AnyLanguageModel */; };
 /* End PBXBuildFile section */
 
@@ -31,7 +31,7 @@
 			files = (
 				EA2AE02E2F31F1DA0044D3FC /* Textual in Frameworks */,
 				EA5D7C132F31FC760044D3FC /* AnyLanguageModel in Frameworks */,
-				EA3B6A502F31C9AC0044D3FC /* SwiftTerm in Frameworks */,
+				EA106B712F32169300C06CEE /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -75,8 +75,8 @@
 			name = observo;
 			packageProductDependencies = (
 				EA5D7C122F31FC760044D3FC /* AnyLanguageModel */,
-				EA3B6A4F2F31C9AC0044D3FC /* SwiftTerm */,
 				EA2AE02D2F31F1DA0044D3FC /* Textual */,
+				EA106B702F32169300C06CEE /* SwiftTerm */,
 			);
 			productName = observo;
 			productReference = EA2ADFA02F31AF440044D3FC /* observo.app */;
@@ -108,8 +108,8 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				EA5D7C112F31FC760044D3FC /* XCLocalSwiftPackageReference "/Volumes/Data/Github/AnyLanguageModel" */,
-				EA3B6A4E2F31C9AC0044D3FC /* XCLocalSwiftPackageReference "/Volumes/Data/Github/SwiftTerm" */,
 				EA2AE02C2F31F1DA0044D3FC /* XCRemoteSwiftPackageReference "textual" */,
+				EA106B6F2F32169300C06CEE /* XCLocalSwiftPackageReference "../SwiftTerm" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = EA2ADFA12F31AF440044D3FC /* Products */;
@@ -376,9 +376,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		EA3B6A4E2F31C9AC0044D3FC /* XCLocalSwiftPackageReference "/Volumes/Data/Github/SwiftTerm" */ = {
+		EA106B6F2F32169300C06CEE /* XCLocalSwiftPackageReference "../SwiftTerm" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = /Volumes/Data/Github/SwiftTerm;
+			relativePath = ../SwiftTerm;
 		};
 		EA5D7C112F31FC760044D3FC /* XCLocalSwiftPackageReference "/Volumes/Data/Github/AnyLanguageModel" */ = {
 			isa = XCLocalSwiftPackageReference;
@@ -398,15 +398,14 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		EA106B702F32169300C06CEE /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SwiftTerm;
+		};
 		EA2AE02D2F31F1DA0044D3FC /* Textual */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = EA2AE02C2F31F1DA0044D3FC /* XCRemoteSwiftPackageReference "textual" */;
 			productName = Textual;
-		};
-		EA3B6A4F2F31C9AC0044D3FC /* SwiftTerm */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = EA3B6A4E2F31C9AC0044D3FC /* XCLocalSwiftPackageReference "/Volumes/Data/Github/SwiftTerm" */;
-			productName = SwiftTerm;
 		};
 		EA5D7C122F31FC760044D3FC /* AnyLanguageModel */ = {
 			isa = XCSwiftPackageProductDependency;
