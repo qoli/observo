@@ -758,6 +758,7 @@ import Textual
             currentDirectory = nil
             connectionDescriptor = nil
             canSendCommand = false
+            pendingCommand = nil
         }
 
         func requestDisconnect() {
@@ -1132,6 +1133,7 @@ import Textual
             lastCommandID = pendingCommand.id
             Task { @MainActor in
                 sessionStore?.append(TerminalEvent(kind: .command(pendingCommand.text)))
+                sessionStore?.pendingCommand = nil
             }
             terminal.send(txt: pendingCommand.text + "\n")
         }
