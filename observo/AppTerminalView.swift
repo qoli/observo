@@ -11,6 +11,18 @@ import Textual
 #if os(macOS)
     import AppKit
 
+    private enum AIChatSettingsDefaults {
+        static let analysisPrompt = """
+        請根據以下終端紀錄提供精煉分析：
+        1) 目前狀態摘要
+        2) 可能錯誤與風險
+        3) 下一步建議命令（請附上命令）
+        """
+        static let baseURL = "http://localhost:11434/v1"
+        static let apiKey = "local"
+        static let modelName = "qwen3:8b"
+    }
+
     struct AppTerminalView: View {
         @ObservedObject var sessionStore: TerminalSessionStore
         @Environment(\.colorScheme) private var colorScheme
@@ -245,16 +257,7 @@ import Textual
         @AppStorage("inspector.selectedPane") private var selectedPane: InspectorPane = .aiChat
 
         var body: some View {
-            VStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Inspector")
-                        .font(.headline)
-                    Text("\(sessionStore.eventCount) events captured")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
+            VStack(spacing: 0) {
                 Picker("Inspector", selection: $selectedPane) {
                     ForEach(InspectorPane.allCases) { pane in
                         Text(pane.title).tag(pane)
@@ -270,22 +273,16 @@ import Textual
                     DiffPlaceholderView()
                 }
             }
-            .padding(12)
         }
     }
 
     struct AIChatDetailView: View {
         @ObservedObject var sessionStore: TerminalSessionStore
 
-        @AppStorage("llm.analysisPrompt") private var analysisPrompt = """
-        請根據以下終端紀錄提供精煉分析：
-        1) 目前狀態摘要
-        2) 可能錯誤與風險
-        3) 下一步建議命令（請附上命令）
-        """
-        @AppStorage("llm.openaiCompatibleBaseURL") private var openAICompatibleBaseURL = "http://localhost:11434/v1"
-        @AppStorage("llm.openaiCompatibleAPIKey") private var openAICompatibleAPIKey = "local"
-        @AppStorage("llm.openaiCompatibleModelName") private var openAICompatibleModelName = "qwen3:8b"
+        @AppStorage("llm.analysisPrompt") private var analysisPrompt = AIChatSettingsDefaults.analysisPrompt
+        @AppStorage("llm.openaiCompatibleBaseURL") private var openAICompatibleBaseURL = AIChatSettingsDefaults.baseURL
+        @AppStorage("llm.openaiCompatibleAPIKey") private var openAICompatibleAPIKey = AIChatSettingsDefaults.apiKey
+        @AppStorage("llm.openaiCompatibleModelName") private var openAICompatibleModelName = AIChatSettingsDefaults.modelName
 
         @State private var modelResponse = ""
         @State private var modelError: String?
@@ -294,28 +291,17 @@ import Textual
         private let localModelClient = LocalModelClient()
 
         var body: some View {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("AI Chat")
-                    .font(.headline)
+            VStack(alignment: .leading) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(openAICompatibleModelName) @ \(openAICompatibleBaseURL)")
+                        .font(.caption)
+                        .lineLimit(1)
 
-                Group {
-                    TextField("OpenAI-Compatible Endpoint", text: $openAICompatibleBaseURL)
-                    TextField("API Key", text: $openAICompatibleAPIKey)
-                    TextField("Model", text: $openAICompatibleModelName)
+                    Text("\(sessionStore.eventCount) events captured")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
-                .textFieldStyle(.roundedBorder)
-
-                Text("Prompt")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                TextEditor(text: $analysisPrompt)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(height: 110)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color.secondary.opacity(0.2))
-                    }
+                .padding(.all, 0)
 
                 HStack {
                     Button {
@@ -331,19 +317,22 @@ import Textual
                     }
 
                     Spacer()
+
+                    SettingsLink {
+                        Text("Settings...")
+                    }
                 }
+
+                Divider()
 
                 ScrollView {
                     StructuredText(markdown: modelResponse.isEmpty ? "No response yet." : modelResponse)
                         .textual.textSelection(.enabled)
                         .textual.structuredTextStyle(.gitHub)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
                 }
-                .background(Color(nsColor: .textBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
+            .padding()
             .alert(
                 "Local Model Error",
                 isPresented: Binding(
@@ -393,6 +382,32 @@ import Textual
                     }
                 }
             }
+        }
+    }
+
+    struct AppSettingsView: View {
+        @AppStorage("llm.analysisPrompt") private var analysisPrompt = AIChatSettingsDefaults.analysisPrompt
+        @AppStorage("llm.openaiCompatibleBaseURL") private var openAICompatibleBaseURL = AIChatSettingsDefaults.baseURL
+        @AppStorage("llm.openaiCompatibleAPIKey") private var openAICompatibleAPIKey = AIChatSettingsDefaults.apiKey
+        @AppStorage("llm.openaiCompatibleModelName") private var openAICompatibleModelName = AIChatSettingsDefaults.modelName
+
+        var body: some View {
+            Form {
+                Section("AI Chat") {
+                    TextField("OpenAI-Compatible Endpoint", text: $openAICompatibleBaseURL)
+                    SecureField("API Key", text: $openAICompatibleAPIKey)
+                    TextField("Model", text: $openAICompatibleModelName)
+                }
+
+                Section("Prompt") {
+                    TextEditor(text: $analysisPrompt)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(minHeight: 180)
+                }
+            }
+            .formStyle(.grouped)
+            .padding(16)
+            .frame(minWidth: 620, minHeight: 460)
         }
     }
 
@@ -683,14 +698,14 @@ import Textual
             let end = slice.endIndex
             while next < end {
                 let chunkEnd = min(next + feedChunkSize, end)
-                feed(byteArray: slice[next..<chunkEnd])
+                feed(byteArray: slice[next ..< chunkEnd])
                 next = chunkEnd
             }
         }
     }
 
     private final class TerminalHostViewController: NSViewController {
-        static weak var visibleTerminal: SSHLoggingTerminalView?
+        weak static var visibleTerminal: SSHLoggingTerminalView?
 
         let terminalView: SSHLoggingTerminalView
 
@@ -769,7 +784,7 @@ import Textual
         }
 
         static func sendFunctionKey(_ key: Int) {
-            guard (1...EscapeSequences.cmdF.count).contains(key) else { return }
+            guard (1 ... EscapeSequences.cmdF.count).contains(key) else { return }
             guard let terminal = TerminalHostViewController.visibleTerminal else { return }
             terminal.send(data: EscapeSequences.cmdF[key - 1][...])
         }
@@ -940,7 +955,7 @@ import Textual
     }
 
     private extension NSColor {
-        nonisolated convenience init?(hex: String) {
+        convenience nonisolated init?(hex: String) {
             let token = hex.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             if token == "systembackground" {
                 self.init(cgColor: NSColor.windowBackgroundColor.cgColor)

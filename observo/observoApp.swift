@@ -10,12 +10,20 @@ import SwiftUI
 @main
 struct observoApp: App {
     var body: some Scene {
-        WindowGroup {
-            ContentView()
-        }
         #if os(macOS)
+            WindowGroup {
+                ContentView()
+            }
             .commands {
                 TerminalCommands()
+            }
+
+            Settings {
+                AppSettingsView()
+            }
+        #else
+            WindowGroup {
+                ContentView()
             }
         #endif
     }
