@@ -16,6 +16,7 @@
 
 - [~] **App 级 Adapter（主题/字型绑定）**
   - 已有 `@AppStorage` + `TerminalVisualStyle` + `apply(style:)`。
+  - 已适配 Light / Dark mode 分流主题键（foreground/background/ANSI 16 色）。
   - 见：`observo/AppTerminalView.swift:15`、`observo/AppTerminalView.swift:576`
   - 已补：ANSI 16 色安装（CSV palette → SwiftTerm Color[] → `installColors`）。
 
