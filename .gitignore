@@ -1,0 +1,27 @@
+# macOS
+.DS_Store
+
+# Xcode user-specific data
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+
+# Xcode and Swift build artifacts
+DerivedData/
+build/
+.build/
+
+# SwiftPM local package dependencies
+Packages/
+
+# Common local config / secrets
+.env
+.env.*
+*.p8
+*.p12
+*.mobileprovision
+*.cer
+*.crt
+*.key
+*.pem
