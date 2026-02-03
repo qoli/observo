@@ -134,7 +134,6 @@ import SwiftUI
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(Color.black)
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
 
             commandComposer
         }
