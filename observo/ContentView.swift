@@ -76,11 +76,13 @@ struct ContentView: View {
                 .listStyle(.sidebar)
             } detail: {
                 sessionContent
+                    .inspector(isPresented: $showInspector) {
+                        inspectorContent
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            .inspectorColumnWidth(min: 260, ideal: 340, max: 520)
+                    }
+                    .inspectorColumnWidth(min: 260, ideal: 340, max: 520)
             }
-            .inspector(isPresented: $showInspector) {
-                inspectorContent
-            }
-            .inspectorColumnWidth(min: 260, ideal: 340, max: 520)
             .toolbar {
                 topLevelToolbar
             }
