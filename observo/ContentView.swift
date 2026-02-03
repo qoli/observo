@@ -80,6 +80,7 @@ struct ContentView: View {
             .inspector(isPresented: $showInspector) {
                 inspectorContent
             }
+            .inspectorColumnWidth(min: 260, ideal: 340, max: 520)
             .toolbar {
                 topLevelToolbar
             }

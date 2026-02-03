@@ -28,7 +28,7 @@ import Textual
         @Environment(\.colorScheme) private var colorScheme
 
         // Legacy global theme keys (kept as fallback for compatibility).
-        @AppStorage("terminal.fontSize") private var terminalFontSize = 13.0
+        @AppStorage("terminal.fontSize") private var terminalFontSize = 11.0
         @AppStorage("terminal.foregroundHex") private var terminalForegroundHex = "#00FF66"
         @AppStorage("terminal.backgroundHex") private var terminalBackgroundHex = "#000000"
         @AppStorage("terminal.ansiPaletteHexCSV") private var terminalAnsiPaletteHexCSV = DefaultTerminalTheme.ansiPaletteCSV
@@ -181,7 +181,7 @@ import Textual
                 ExpandTextField(
                     value: $sessionStore.commandInput,
                     placeholder: "Type command here (Enter newline, Cmd+Enter send)",
-                    lineLimit: 5
+                    lineLimit: 3
                 )
 
                 Button {
