@@ -13,64 +13,68 @@ import SwiftUI
     struct AppTerminalView: View {
         @ObservedObject var sessionStore: TerminalSessionStore
 
-        @State private var host = "127.0.0.1"
-        @State private var port = "22"
-        @State private var username = NSUserName()
-        @State private var activeRequest: SSHSessionRequest?
-        @State private var commandInput = ""
-        @State private var pendingCommand: PendingCommand?
-
         private var canConnect: Bool {
-            !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                && !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                && Int(port) != nil
+            !sessionStore.host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !sessionStore.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && Int(sessionStore.port) != nil
         }
 
         private var isConnected: Bool {
-            activeRequest != nil
+            sessionStore.activeRequest != nil
         }
 
-        private var sessionTitle: String {
-            guard let request = activeRequest else { return "SSH Session" }
-            return "\(request.username)@\(request.host):\(request.port)"
+        private var navigationTitleText: String {
+            if !sessionStore.terminalTitle.isEmpty {
+                return sessionStore.terminalTitle
+            }
+            if let descriptor = sessionStore.connectionDescriptor {
+                return descriptor
+            }
+            return "SSH Session"
         }
 
         var body: some View {
-            VStack(spacing: 14) {
+            VStack {
                 if isConnected {
                     connectedSessionPanel
                 } else {
                     connectionPanel
                 }
             }
-            .padding(12)
-            .navigationTitle(sessionTitle)
+            .navigationTitle(navigationTitleText)
+            .navigationSubtitle(sessionStore.currentDirectory ?? "")
             .onReceive(sessionStore.$disconnectRequestID.dropFirst()) { _ in
-                guard activeRequest != nil else { return }
-                activeRequest = nil
+                guard sessionStore.activeRequest != nil else { return }
+                sessionStore.activeRequest = nil
             }
-            .onChange(of: activeRequest) { _, newValue in
+            .onChange(of: sessionStore.activeRequest) { _, newValue in
                 sessionStore.setConnected(newValue != nil)
+                if let request = newValue {
+                    sessionStore.setConnectionDescriptor("\(request.username)@\(request.host):\(request.port)")
+                } else {
+                    sessionStore.resetTerminalContext()
+                }
             }
         }
 
         private func connect() {
-            guard let portValue = Int(port) else { return }
-            let cleanHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-            let cleanUser = username.trimmingCharacters(in: .whitespacesAndNewlines)
-            activeRequest = SSHSessionRequest(host: cleanHost, port: portValue, username: cleanUser)
+            guard let portValue = Int(sessionStore.port) else { return }
+            let cleanHost = sessionStore.host.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanUser = sessionStore.username.trimmingCharacters(in: .whitespacesAndNewlines)
+            sessionStore.activeRequest = SSHSessionRequest(host: cleanHost, port: portValue, username: cleanUser)
+            sessionStore.setConnectionDescriptor("\(cleanUser)@\(cleanHost):\(portValue)")
         }
 
         private func sendCommand() {
-            let trimmed = commandInput.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmed = sessionStore.commandInput.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
-            pendingCommand = PendingCommand(text: trimmed)
-            commandInput = ""
+            sessionStore.pendingCommand = PendingCommand(text: trimmed)
+            sessionStore.commandInput = ""
         }
 
         @ViewBuilder
         private var connectionPanel: some View {
-            VStack(spacing: 10) {
+            VStack {
                 HStack {
                     Label("SSH Connection", systemImage: "network")
                         .font(.headline)
@@ -84,9 +88,9 @@ import SwiftUI
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
-                    TextField("Host", text: $host)
-                    TextField("Port", text: $port)
-                    TextField("Username", text: $username)
+                    TextField("Host", text: $sessionStore.host)
+                    TextField("Port", text: $sessionStore.port)
+                    TextField("Username", text: $sessionStore.username)
                 }
                 .textFieldStyle(.roundedBorder)
                 .controlSize(.regular)
@@ -107,9 +111,9 @@ import SwiftUI
 
         @ViewBuilder
         private var commandComposer: some View {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading) {
                 ExpandTextField(
-                    value: $commandInput,
+                    value: $sessionStore.commandInput,
                     placeholder: "Type command here (Enter newline, Cmd+Enter send)",
                     lineLimit: 3
                 )
@@ -121,19 +125,20 @@ import SwiftUI
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.return, modifiers: [.command])
-                .disabled(commandInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(sessionStore.commandInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+            .padding()
         }
 
         @ViewBuilder
         private var connectedSessionPanel: some View {
             SSHMacTerminalContainer(
-                request: activeRequest,
-                pendingCommand: pendingCommand,
+                request: sessionStore.activeRequest,
+                pendingCommand: sessionStore.pendingCommand,
                 sessionStore: sessionStore
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(Color.black)
+//            .background(Color.black)
 
             commandComposer
         }
@@ -176,7 +181,7 @@ import SwiftUI
 
     struct SessionInspectorView: View {
         @ObservedObject var sessionStore: TerminalSessionStore
-        @State private var selectedPane: InspectorPane = .aiChat
+        @AppStorage("inspector.selectedPane") private var selectedPane: InspectorPane = .aiChat
 
         var body: some View {
             VStack(spacing: 12) {
@@ -345,13 +350,13 @@ import SwiftUI
         }
     }
 
-    private struct SSHSessionRequest: Equatable {
+    struct SSHSessionRequest: Equatable {
         let host: String
         let port: Int
         let username: String
     }
 
-    private struct PendingCommand: Equatable {
+    struct PendingCommand: Equatable {
         let id = UUID()
         let text: String
     }
@@ -368,9 +373,19 @@ import SwiftUI
 
     @MainActor
     final class TerminalSessionStore: ObservableObject {
+        @Published var host = "127.0.0.1"
+        @Published var port = "22"
+        @Published var username = NSUserName()
+        @Published var activeRequest: SSHSessionRequest?
+        @Published var commandInput = ""
+        @Published var pendingCommand: PendingCommand?
+
         @Published private(set) var hasEvents = false
         @Published private(set) var eventCount = 0
         @Published private(set) var isConnected = false
+        @Published private(set) var terminalTitle = ""
+        @Published private(set) var currentDirectory: String?
+        @Published private(set) var connectionDescriptor: String?
         @Published var disconnectRequestID = UUID()
 
         private var events: [TerminalEvent] = []
@@ -435,6 +450,25 @@ import SwiftUI
 
         func setConnected(_ connected: Bool) {
             isConnected = connected
+        }
+
+        func setConnectionDescriptor(_ descriptor: String?) {
+            let trimmed = descriptor?.trimmingCharacters(in: .whitespacesAndNewlines)
+            connectionDescriptor = (trimmed?.isEmpty == false) ? trimmed : nil
+        }
+
+        func setTerminalTitle(_ title: String) {
+            terminalTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        func setCurrentDirectory(_ directory: String?) {
+            currentDirectory = directory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        func resetTerminalContext() {
+            terminalTitle = ""
+            currentDirectory = nil
+            connectionDescriptor = nil
         }
 
         func requestDisconnect() {
@@ -532,12 +566,14 @@ import SwiftUI
         func makeNSView(context: Context) -> LocalProcessTerminalView {
             let terminal = SSHLoggingTerminalView(frame: .zero)
             terminal.getTerminal().silentLog = true
+            terminal.getTerminal().setCursorStyle(.steadyBlock)
             terminal.processDelegate = context.coordinator
             terminal.nativeBackgroundColor = .black
             terminal.nativeForegroundColor = .systemGreen
             terminal.caretColor = .systemGreen
+            terminal.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
             terminal.sessionStore = sessionStore
-            terminal.feed(text: "[SSH] Ready. Fill host/port/user and press Connect.\n")
+            terminal.feed(text: "[SSH] Ready. Fill host/port/user and press Connect.\r\n")
             return terminal
         }
 
@@ -568,13 +604,16 @@ import SwiftUI
                 }
 
                 guard let request else {
-                    terminal.feed(text: "\n[SSH] Disconnected.\n")
+                    terminal.feed(text: "\r\n[SSH] Disconnected.\r\n")
                     lastRequest = nil
+                    Task { @MainActor in
+                        sessionStore?.resetTerminalContext()
+                    }
                     return
                 }
 
                 lastRequest = request
-                terminal.feed(text: "\n[SSH] Connecting to \(request.username)@\(request.host):\(request.port) ...\n")
+                terminal.feed(text: "\r\n[SSH] Connecting to \(request.username)@\(request.host):\(request.port) ...\r\n")
 
                 let login = "\(request.username)@\(request.host)"
                 let args = [
@@ -603,7 +642,7 @@ import SwiftUI
                 lastCommandID = pendingCommand.id
 
                 guard terminal.process.running else {
-                    terminal.feed(text: "[SSH] Not connected. Command ignored.\n")
+                    terminal.feed(text: "[SSH] Not connected. Command ignored.\r\n")
                     return
                 }
 
@@ -613,20 +652,33 @@ import SwiftUI
                 terminal.send(txt: pendingCommand.text + "\n")
             }
 
-            func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
+            func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {
+                // LocalProcessTerminalView already updates PTY winsize before this callback.
+                _ = (newCols, newRows)
+            }
 
-            func setTerminalTitle(source: LocalProcessTerminalView, title: String) {}
+            func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
+                Task { @MainActor in
+                    sessionStore?.setTerminalTitle(title)
+                }
+            }
 
-            func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
+            func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
+                Task { @MainActor in
+                    sessionStore?.setCurrentDirectory(directory)
+                }
+            }
 
             func processTerminated(source: TerminalView, exitCode: Int32?) {
                 Task { @MainActor in
+                    sessionStore?.activeRequest = nil
                     sessionStore?.setConnected(false)
+                    sessionStore?.resetTerminalContext()
                 }
                 if let exitCode {
-                    source.feed(text: "\n[SSH] Session ended (exit: \(exitCode)).\n")
+                    source.feed(text: "\r\n[SSH] Session ended (exit: \(exitCode)).\r\n")
                 } else {
-                    source.feed(text: "\n[SSH] Session ended.\n")
+                    source.feed(text: "\r\n[SSH] Session ended.\r\n")
                 }
             }
         }
@@ -657,10 +709,31 @@ import SwiftUI
         @Published private(set) var hasEvents = false
         @Published private(set) var eventCount = 0
         @Published private(set) var isConnected = false
+        @Published private(set) var terminalTitle = ""
+        @Published private(set) var currentDirectory: String?
+        @Published private(set) var connectionDescriptor: String?
         @Published var disconnectRequestID = UUID()
 
         func setConnected(_ connected: Bool) {
             isConnected = connected
+        }
+
+        func setConnectionDescriptor(_ descriptor: String?) {
+            connectionDescriptor = descriptor
+        }
+
+        func setTerminalTitle(_ title: String) {
+            terminalTitle = title
+        }
+
+        func setCurrentDirectory(_ directory: String?) {
+            currentDirectory = directory
+        }
+
+        func resetTerminalContext() {
+            terminalTitle = ""
+            currentDirectory = nil
+            connectionDescriptor = nil
         }
 
         func requestDisconnect() {

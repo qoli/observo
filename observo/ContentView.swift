@@ -19,6 +19,27 @@ private struct SidebarSession: Identifiable, Hashable {
         self.symbol = symbol
     }
 }
+
+private struct SessionSidebarRow: View {
+    let baseTitle: String
+    let symbol: String
+    @ObservedObject var sessionStore: TerminalSessionStore
+
+    private var displayTitle: String {
+        if !sessionStore.terminalTitle.isEmpty {
+            return sessionStore.terminalTitle
+        }
+        if let descriptor = sessionStore.connectionDescriptor, !descriptor.isEmpty {
+            return descriptor
+        }
+        return baseTitle
+    }
+
+    var body: some View {
+        Label(displayTitle, systemImage: symbol)
+            .lineLimit(1)
+    }
+}
 #endif
 
 struct ContentView: View {
@@ -26,7 +47,7 @@ struct ContentView: View {
     @State private var sessions: [SidebarSession]
     @State private var selectedSessionID: SidebarSession.ID?
     @State private var sessionStores: [SidebarSession.ID: TerminalSessionStore]
-    @State private var showInspector = true
+    @AppStorage("ui.showInspector") private var showInspector = true
 #endif
 
 #if os(macOS)
@@ -42,8 +63,14 @@ struct ContentView: View {
 #if os(macOS)
         NavigationSplitView {
             List(sessions, selection: $selectedSessionID) { session in
-                Label(session.title, systemImage: session.symbol)
-                    .tag(session.id)
+                Group {
+                    if let store = sessionStores[session.id] {
+                        SessionSidebarRow(baseTitle: session.title, symbol: session.symbol, sessionStore: store)
+                    } else {
+                        Label(session.title, systemImage: session.symbol)
+                    }
+                }
+                .tag(session.id)
             }
             .navigationTitle("Sessions")
             .listStyle(.sidebar)
