@@ -17,7 +17,7 @@
 - [~] **App 级 Adapter（主题/字型绑定）**
   - 已有 `@AppStorage` + `TerminalVisualStyle` + `apply(style:)`。
   - 见：`observo/AppTerminalView.swift:15`、`observo/AppTerminalView.swift:576`
-  - 待补：像 SwiftTermApp 一样支持完整 ANSI 主题安装（不仅前景/背景/光标）。
+  - 已补：ANSI 16 色安装（CSV palette → SwiftTerm Color[] → `installColors`）。
 
 - [x] **I/O 桥接层**
   - 已有 `SSHIOBridge` 处理连接生命周期、命令发送、标题/目录回调。
@@ -35,12 +35,12 @@
   - 已新增 app 级 `Commands` 菜单与命令桥接：Soft/Hard Reset、Selection、Escape、F1-F12。
   - 见：`observo/TerminalCommands.swift`、`observo/AppTerminalView.swift:665`
 
-- [ ] **外部色票 → SwiftTerm Color 主题转换**
-  - 目前仅 hex 转 `NSColor` 并设置 foreground/background。
-  - 见：`observo/AppTerminalView.swift:829`
+- [x] **外部色票 → SwiftTerm Color 主题转换**
+  - 已支持 `terminal.ansiPaletteHexCSV`（16 色）并转换后安装到 SwiftTerm 调色板。
+  - 见：`observo/AppTerminalView.swift`
 
 ## 下一步建议（按优先级）
 
-1. 补「完整主题层」：引入 ANSI 16 色映射并安装到 SwiftTerm。
-2. 整理终端容器输入通道：把 keyboard/快捷键入口再收敛到单一层。
+1. 整理终端容器输入通道：把 keyboard/快捷键入口再收敛到单一层。
+2. 为 ANSI 主题补 UI 编辑入口（目前只有 `AppStorage` 配置键）。
 3. 评估是否切到 `libssh2` 架构（成本高、收益主要在可控性与可观测性）。

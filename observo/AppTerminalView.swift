@@ -15,6 +15,7 @@ import SwiftUI
         @AppStorage("terminal.fontSize") private var terminalFontSize = 13.0
         @AppStorage("terminal.foregroundHex") private var terminalForegroundHex = "#00FF66"
         @AppStorage("terminal.backgroundHex") private var terminalBackgroundHex = "#000000"
+        @AppStorage("terminal.ansiPaletteHexCSV") private var terminalAnsiPaletteHexCSV = DefaultTerminalTheme.ansiPaletteCSV
 
         private var canConnect: Bool {
             !sessionStore.host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -40,8 +41,17 @@ import SwiftUI
             TerminalVisualStyle(
                 fontSize: CGFloat(terminalFontSize),
                 foregroundHex: terminalForegroundHex,
-                backgroundHex: terminalBackgroundHex
+                backgroundHex: terminalBackgroundHex,
+                ansiPaletteHex: Self.normalizedAnsiPalette(hexCSV: terminalAnsiPaletteHexCSV)
             )
+        }
+
+        private static func normalizedAnsiPalette(hexCSV: String) -> [String] {
+            let palette = hexCSV
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            return palette.count == 16 ? palette : DefaultTerminalTheme.ansiPalette
         }
 
         var body: some View {
@@ -577,17 +587,39 @@ import SwiftUI
         let fontSize: CGFloat
         let foregroundHex: String
         let backgroundHex: String
+        let ansiPaletteHex: [String]
+    }
+
+    private enum DefaultTerminalTheme {
+        static let ansiPalette: [String] = [
+            "#000000", "#CC0000", "#4E9A06", "#C4A000",
+            "#3465A4", "#75507B", "#06989A", "#D3D7CF",
+            "#555753", "#EF2929", "#8AE234", "#FCE94F",
+            "#729FCF", "#AD7FA8", "#34E2E2", "#EEEEEC",
+        ]
+        static let ansiPaletteCSV = ansiPalette.joined(separator: ",")
     }
 
     private final class SSHLoggingTerminalView: LocalProcessTerminalView {
         private let feedChunkSize = 1024
+        private var appliedStyle: TerminalVisualStyle?
         weak var sessionStore: TerminalSessionStore?
 
         func apply(style: TerminalVisualStyle) {
+            guard appliedStyle != style else { return }
+            appliedStyle = style
+
             nativeForegroundColor = NSColor(hex: style.foregroundHex) ?? .systemGreen
             nativeBackgroundColor = NSColor(hex: style.backgroundHex) ?? .black
             caretColor = nativeForegroundColor
             font = NSFont.monospacedSystemFont(ofSize: max(10, style.fontSize), weight: .regular)
+
+            let palette = style.ansiPaletteHex
+                .compactMap(NSColor.init(hex:))
+                .map { $0.terminalColorValue }
+            if palette.count == 16 {
+                installColors(palette)
+            }
         }
 
         override func dataReceived(slice: ArraySlice<UInt8>) {
@@ -883,6 +915,24 @@ import SwiftUI
                 green: CGFloat(g) / 255.0,
                 blue: CGFloat(b) / 255.0,
                 alpha: CGFloat(a) / 255.0
+            )
+        }
+
+        var terminalColorValue: SwiftTerm.Color {
+            guard let color = usingColorSpace(.deviceRGB) else {
+                return SwiftTerm.Color(red: 0, green: 0, blue: 0)
+            }
+
+            var red: CGFloat = 0.0
+            var green: CGFloat = 0.0
+            var blue: CGFloat = 0.0
+            var alpha: CGFloat = 1.0
+            color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+
+            return SwiftTerm.Color(
+                red: UInt16(red * 65535.0),
+                green: UInt16(green * 65535.0),
+                blue: UInt16(blue * 65535.0)
             )
         }
     }
