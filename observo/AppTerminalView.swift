@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import SwiftTerm
 import SwiftUI
+import Textual
 
 #if canImport(AnyLanguageModel)
     import AnyLanguageModel
@@ -198,7 +199,7 @@ import SwiftUI
                 style: terminalStyle
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-//            .background(Color.black)
+            .padding()
 
             commandComposer
         }
@@ -260,6 +261,7 @@ import SwiftUI
                     }
                 }
                 .pickerStyle(.segmented)
+                .labelsHidden()
 
                 switch selectedPane {
                 case .aiChat:
@@ -332,9 +334,10 @@ import SwiftUI
                 }
 
                 ScrollView {
-                    Text(modelResponse.isEmpty ? "No response yet." : modelResponse)
+                    StructuredText(markdown: modelResponse.isEmpty ? "No response yet." : modelResponse)
+                        .textual.textSelection(.enabled)
+                        .textual.structuredTextStyle(.gitHub)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 8)
                 }

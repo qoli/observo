@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		EA2AE02E2F31F1DA0044D3FC /* Textual in Frameworks */ = {isa = PBXBuildFile; productRef = EA2AE02D2F31F1DA0044D3FC /* Textual */; };
 		EA3B6A502F31C9AC0044D3FC /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = EA3B6A4F2F31C9AC0044D3FC /* SwiftTerm */; };
 		EA5D7C132F31FC760044D3FC /* AnyLanguageModel in Frameworks */ = {isa = PBXBuildFile; productRef = EA5D7C122F31FC760044D3FC /* AnyLanguageModel */; };
 /* End PBXBuildFile section */
@@ -28,6 +29,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EA2AE02E2F31F1DA0044D3FC /* Textual in Frameworks */,
 				EA5D7C132F31FC760044D3FC /* AnyLanguageModel in Frameworks */,
 				EA3B6A502F31C9AC0044D3FC /* SwiftTerm in Frameworks */,
 			);
@@ -74,6 +76,7 @@
 			packageProductDependencies = (
 				EA5D7C122F31FC760044D3FC /* AnyLanguageModel */,
 				EA3B6A4F2F31C9AC0044D3FC /* SwiftTerm */,
+				EA2AE02D2F31F1DA0044D3FC /* Textual */,
 			);
 			productName = observo;
 			productReference = EA2ADFA02F31AF440044D3FC /* observo.app */;
@@ -106,6 +109,7 @@
 			packageReferences = (
 				EA5D7C112F31FC760044D3FC /* XCLocalSwiftPackageReference "/Volumes/Data/Github/AnyLanguageModel" */,
 				EA3B6A4E2F31C9AC0044D3FC /* XCLocalSwiftPackageReference "/Volumes/Data/Github/SwiftTerm" */,
+				EA2AE02C2F31F1DA0044D3FC /* XCRemoteSwiftPackageReference "textual" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = EA2ADFA12F31AF440044D3FC /* Products */;
@@ -382,7 +386,23 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		EA2AE02C2F31F1DA0044D3FC /* XCRemoteSwiftPackageReference "textual" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gonzalezreal/textual";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.3.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
+		EA2AE02D2F31F1DA0044D3FC /* Textual */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EA2AE02C2F31F1DA0044D3FC /* XCRemoteSwiftPackageReference "textual" */;
+			productName = Textual;
+		};
 		EA3B6A4F2F31C9AC0044D3FC /* SwiftTerm */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = EA3B6A4E2F31C9AC0044D3FC /* XCLocalSwiftPackageReference "/Volumes/Data/Github/SwiftTerm" */;
