@@ -66,7 +66,7 @@ struct ContentView: View {
     private var sessionContent: some View {
         switch selectedSession {
         case .primary:
-            SwiftTermDemoView(sessionStore: primarySessionStore)
+            AppTerminalView(sessionStore: primarySessionStore)
         case .none:
             ContentUnavailableView("Select a Session", systemImage: "sidebar.left")
         }

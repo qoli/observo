@@ -7,8 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		EA5D7C132F31FC760044D3FC /* AnyLanguageModel in Frameworks */ = {isa = PBXBuildFile; productRef = EA5D7C122F31FC760044D3FC /* AnyLanguageModel */; };
 		EA3B6A502F31C9AC0044D3FC /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = EA3B6A4F2F31C9AC0044D3FC /* SwiftTerm */; };
+		EA5D7C132F31FC760044D3FC /* AnyLanguageModel in Frameworks */ = {isa = PBXBuildFile; productRef = EA5D7C122F31FC760044D3FC /* AnyLanguageModel */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -268,12 +268,12 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
-				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
-				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
@@ -315,12 +315,12 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
-				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
-				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
@@ -372,26 +372,26 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		EA5D7C112F31FC760044D3FC /* XCLocalSwiftPackageReference "/Volumes/Data/Github/AnyLanguageModel" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = /Volumes/Data/Github/AnyLanguageModel;
-		};
 		EA3B6A4E2F31C9AC0044D3FC /* XCLocalSwiftPackageReference "/Volumes/Data/Github/SwiftTerm" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = /Volumes/Data/Github/SwiftTerm;
 		};
+		EA5D7C112F31FC760044D3FC /* XCLocalSwiftPackageReference "/Volumes/Data/Github/AnyLanguageModel" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = /Volumes/Data/Github/AnyLanguageModel;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		EA5D7C122F31FC760044D3FC /* AnyLanguageModel */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = EA5D7C112F31FC760044D3FC /* XCLocalSwiftPackageReference "/Volumes/Data/Github/AnyLanguageModel" */;
-			productName = AnyLanguageModel;
-		};
 		EA3B6A4F2F31C9AC0044D3FC /* SwiftTerm */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = EA3B6A4E2F31C9AC0044D3FC /* XCLocalSwiftPackageReference "/Volumes/Data/Github/SwiftTerm" */;
 			productName = SwiftTerm;
+		};
+		EA5D7C122F31FC760044D3FC /* AnyLanguageModel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EA5D7C112F31FC760044D3FC /* XCLocalSwiftPackageReference "/Volumes/Data/Github/AnyLanguageModel" */;
+			productName = AnyLanguageModel;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

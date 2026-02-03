@@ -10,7 +10,7 @@ import SwiftUI
 #if os(macOS)
     import AppKit
 
-    struct SwiftTermDemoView: View {
+    struct AppTerminalView: View {
         @ObservedObject var sessionStore: TerminalSessionStore
 
         @State private var host = "127.0.0.1"
