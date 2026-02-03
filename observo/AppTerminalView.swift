@@ -72,6 +72,7 @@ import SwiftUI
             guard let portValue = Int(sessionStore.port) else { return }
             let cleanHost = sessionStore.host.trimmingCharacters(in: .whitespacesAndNewlines)
             let cleanUser = sessionStore.username.trimmingCharacters(in: .whitespacesAndNewlines)
+            sessionStore.markConnecting()
             sessionStore.activeRequest = SSHSessionRequest(host: cleanHost, port: portValue, username: cleanUser)
             sessionStore.setConnectionDescriptor("\(cleanUser)@\(cleanHost):\(portValue)")
         }
@@ -126,7 +127,7 @@ import SwiftUI
                 ExpandTextField(
                     value: $sessionStore.commandInput,
                     placeholder: "Type command here (Enter newline, Cmd+Enter send)",
-                    lineLimit: 3
+                    lineLimit: 5
                 )
 
                 Button {
@@ -137,6 +138,12 @@ import SwiftUI
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.return, modifiers: [.command])
                 .disabled(sessionStore.commandInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                if !sessionStore.canSendCommand {
+                    Label("Waiting for SSH prompt...", systemImage: "clock")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding()
         }
@@ -395,6 +402,7 @@ import SwiftUI
         @Published private(set) var hasEvents = false
         @Published private(set) var eventCount = 0
         @Published private(set) var isConnected = false
+        @Published private(set) var canSendCommand = false
         @Published private(set) var terminalTitle = ""
         @Published private(set) var currentDirectory: String?
         @Published private(set) var connectionDescriptor: String?
@@ -462,6 +470,17 @@ import SwiftUI
 
         func setConnected(_ connected: Bool) {
             isConnected = connected
+            if !connected {
+                canSendCommand = false
+            }
+        }
+
+        func markConnecting() {
+            canSendCommand = false
+        }
+
+        func markRemoteOutputReceived() {
+            canSendCommand = true
         }
 
         func setConnectionDescriptor(_ descriptor: String?) {
@@ -481,6 +500,7 @@ import SwiftUI
             terminalTitle = ""
             currentDirectory = nil
             connectionDescriptor = nil
+            canSendCommand = false
         }
 
         func requestDisconnect() {
@@ -574,6 +594,7 @@ import SwiftUI
             let text = String(decoding: slice, as: UTF8.self)
             if !text.isEmpty {
                 Task { @MainActor in
+                    sessionStore?.markRemoteOutputReceived()
                     sessionStore?.append(TerminalEvent(kind: .stdout(text)))
                 }
             }
@@ -758,13 +779,16 @@ import SwiftUI
         private func sendIfNeeded(_ pendingCommand: PendingCommand?, to terminal: LocalProcessTerminalView) {
             guard let pendingCommand else { return }
             guard pendingCommand.id != lastCommandID else { return }
-            lastCommandID = pendingCommand.id
 
-            guard terminal.process.running else {
-                terminal.feed(text: "[SSH] Not connected. Command ignored.\r\n")
+            guard sessionStore?.canSendCommand == true else {
                 return
             }
 
+            guard terminal.process.running else {
+                return
+            }
+
+            lastCommandID = pendingCommand.id
             Task { @MainActor in
                 sessionStore?.append(TerminalEvent(kind: .command(pendingCommand.text)))
             }
