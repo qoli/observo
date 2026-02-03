@@ -33,7 +33,7 @@ struct ContentView: View {
 #if os(macOS)
     @State private var selectedSession: SidebarSession? = .primary
     @StateObject private var primarySessionStore = TerminalSessionStore()
-    @State private var isInspectorVisible = true
+    @State private var showInspector = true
 #endif
 
     var body: some View {
@@ -45,48 +45,14 @@ struct ContentView: View {
             }
             .navigationTitle("Sessions")
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 260)
-        } content: {
-            Group {
-                switch selectedSession {
-                case .primary:
-                    SwiftTermDemoView(sessionStore: primarySessionStore)
-                case .none:
-                    ContentUnavailableView("Select a Session", systemImage: "sidebar.left")
-                }
-            }
-            .navigationSplitViewColumnWidth(min: 560, ideal: 760)
         } detail: {
-            Group {
-                if isInspectorVisible {
-                    switch selectedSession {
-                    case .primary:
-                        SessionInspectorView(sessionStore: primarySessionStore)
-                    case .none:
-                        ContentUnavailableView("No Inspector", systemImage: "sidebar.right")
-                    }
-                } else {
-                    Color.clear
-                }
-            }
-            .navigationSplitViewColumnWidth(
-                min: isInspectorVisible ? 300 : 0,
-                ideal: isInspectorVisible ? 360 : 0,
-                max: isInspectorVisible ? 460 : 1
-            )
+            sessionContent
+        }
+        .inspector(isPresented: $showInspector) {
+            inspectorContent
         }
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    isInspectorVisible.toggle()
-                } label: {
-                    Label(
-                        isInspectorVisible ? "Hide Inspector" : "Show Inspector",
-                        systemImage: isInspectorVisible ? "sidebar.trailing" : "sidebar.right"
-                    )
-                }
-                .help(isInspectorVisible ? "Hide Inspector" : "Show Inspector")
-            }
+            topLevelToolbar
         }
 #else
         NavigationStack {
@@ -95,6 +61,42 @@ struct ContentView: View {
 #endif
     }
 
+#if os(macOS)
+    @ViewBuilder
+    private var sessionContent: some View {
+        switch selectedSession {
+        case .primary:
+            SwiftTermDemoView(sessionStore: primarySessionStore)
+        case .none:
+            ContentUnavailableView("Select a Session", systemImage: "sidebar.left")
+        }
+    }
+
+    @ViewBuilder
+    private var inspectorContent: some View {
+        switch selectedSession {
+        case .primary:
+            SessionInspectorView(sessionStore: primarySessionStore)
+        case .none:
+            ContentUnavailableView("No Inspector", systemImage: "sidebar.right")
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var topLevelToolbar: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                showInspector.toggle()
+            } label: {
+                Label(
+                    showInspector ? "Hide Inspector" : "Show Inspector",
+                    systemImage: showInspector ? "sidebar.trailing" : "sidebar.right"
+                )
+            }
+            .help(showInspector ? "Hide Inspector" : "Show Inspector")
+        }
+    }
+#endif
 }
 
 #Preview {
