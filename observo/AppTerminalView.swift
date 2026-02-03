@@ -662,6 +662,39 @@ import SwiftUI
         }
     }
 
+    enum TerminalCommandBridge {
+        static var hasActiveTerminal: Bool {
+            TerminalHostViewController.visibleTerminal != nil
+        }
+
+        static func softReset() {
+            TerminalHostViewController.visibleTerminal?.getTerminal().softReset()
+        }
+
+        static func hardReset() {
+            TerminalHostViewController.visibleTerminal?.getTerminal().resetToInitialState()
+        }
+
+        static func selectAll() {
+            TerminalHostViewController.visibleTerminal?.selectAll()
+        }
+
+        static func clearSelection() {
+            TerminalHostViewController.visibleTerminal?.selectNone()
+        }
+
+        static func sendEscape() {
+            guard let terminal = TerminalHostViewController.visibleTerminal else { return }
+            terminal.send(data: EscapeSequences.cmdEsc[...])
+        }
+
+        static func sendFunctionKey(_ key: Int) {
+            guard (1...EscapeSequences.cmdF.count).contains(key) else { return }
+            guard let terminal = TerminalHostViewController.visibleTerminal else { return }
+            terminal.send(data: EscapeSequences.cmdF[key - 1][...])
+        }
+    }
+
     private struct SSHMacTerminalContainer: NSViewControllerRepresentable {
         let request: SSHSessionRequest?
         let pendingCommand: PendingCommand?

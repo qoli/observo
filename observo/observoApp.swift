@@ -13,5 +13,10 @@ struct observoApp: App {
         WindowGroup {
             ContentView()
         }
+        #if os(macOS)
+            .commands {
+                TerminalCommands()
+            }
+        #endif
     }
 }

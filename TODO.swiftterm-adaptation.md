@@ -31,8 +31,9 @@
   - 目前仍是 `LocalProcessTerminalView + /usr/bin/ssh` 模式。
   - 见：`observo/AppTerminalView.swift:774`
 
-- [ ] **快捷键与终端命令层（reset/selection/F-keys）**
-  - 目前仅有 `Cmd+Enter` 发送，尚无统一命令分发层。
+- [x] **快捷键与终端命令层（reset/selection/F-keys）**
+  - 已新增 app 级 `Commands` 菜单与命令桥接：Soft/Hard Reset、Selection、Escape、F1-F12。
+  - 见：`observo/TerminalCommands.swift`、`observo/AppTerminalView.swift:665`
 
 - [ ] **外部色票 → SwiftTerm Color 主题转换**
   - 目前仅 hex 转 `NSColor` 并设置 foreground/background。
@@ -40,6 +41,6 @@
 
 ## 下一步建议（按优先级）
 
-1. 先补「命令层」：封装 reset/select/f-key，集中在 toolbar 或 Command menu 调用。
-2. 再补「完整主题层」：引入 ANSI 16 色映射并安装到 SwiftTerm。
-3. 最后评估是否切到 `libssh2` 架构（成本高、收益主要在可控性与可观测性）。
+1. 补「完整主题层」：引入 ANSI 16 色映射并安装到 SwiftTerm。
+2. 整理终端容器输入通道：把 keyboard/快捷键入口再收敛到单一层。
+3. 评估是否切到 `libssh2` 架构（成本高、收益主要在可控性与可观测性）。
