@@ -85,7 +85,6 @@ import Textual
             guard let portValue = Int(sessionStore.port) else { return }
             let cleanHost = sessionStore.host.trimmingCharacters(in: .whitespacesAndNewlines)
             let cleanUser = sessionStore.username.trimmingCharacters(in: .whitespacesAndNewlines)
-            sessionStore.markConnecting()
             sessionStore.activeRequest = .ssh(SSHSessionRequest(host: cleanHost, port: portValue, username: cleanUser))
             sessionStore.setConnectionDescriptor("\(cleanUser)@\(cleanHost):\(portValue)")
         }
@@ -94,7 +93,6 @@ import Textual
             let shellPath = defaultLocalShellPath
             let shellName = URL(fileURLWithPath: shellPath).lastPathComponent
             let displayName = "Local Shell (\(shellName))"
-            sessionStore.markConnecting()
             sessionStore.activeRequest = .localShell(
                 LocalShellRequest(
                     executable: shellPath,
@@ -200,12 +198,6 @@ import Textual
                         Label("Print", systemImage: "printer")
                     }
                     .buttonStyle(.bordered)
-                }
-
-                if !sessionStore.canSendCommand {
-                    Label("Waiting for terminal prompt...", systemImage: "clock")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
             }
             .padding(.horizontal)
@@ -445,10 +437,6 @@ import Textual
                     Text("\(openAICompatibleModelName) @ \(openAICompatibleBaseURL)")
                         .font(.caption)
                         .lineLimit(1)
-
-                    Text("\(sessionStore.eventCount) events captured")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
                 }
                 .padding(.all, 0)
 
@@ -458,7 +446,7 @@ import Textual
                     } label: {
                         Label(isRequestingModel ? "Asking..." : "Ask Model", systemImage: "sparkles")
                     }
-                    .disabled(isRequestingModel || !sessionStore.hasEvents)
+                    .disabled(isRequestingModel)
 
                     if isRequestingModel {
                         ProgressView()
@@ -627,16 +615,6 @@ import Textual
         let text: String
     }
 
-    struct TerminalEvent {
-        enum Kind {
-            case command(String)
-            case stdout(String)
-            case stderr(String)
-        }
-
-        let kind: Kind
-    }
-
     @MainActor
     final class TerminalSessionStore: ObservableObject {
         @Published var host = "127.0.0.1"
@@ -646,101 +624,14 @@ import Textual
         @Published var commandInput = ""
         @Published var pendingCommand: PendingCommand?
 
-        @Published private(set) var hasEvents = false
-        @Published private(set) var eventCount = 0
         @Published private(set) var isConnected = false
-        @Published private(set) var canSendCommand = false
         @Published private(set) var terminalTitle = ""
         @Published private(set) var currentDirectory: String?
         @Published private(set) var connectionDescriptor: String?
         @Published var disconnectRequestID = UUID()
 
-        private var events: [TerminalEvent] = []
-        private let maxStoredEvents = 1200
-
-        func append(_ event: TerminalEvent) {
-            let normalized: TerminalEvent?
-            switch event.kind {
-            case let .command(text):
-                let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                normalized = value.isEmpty ? nil : TerminalEvent(kind: .command(value))
-            case let .stdout(text):
-                normalized = text.isEmpty ? nil : TerminalEvent(kind: .stdout(text))
-            case let .stderr(text):
-                normalized = text.isEmpty ? nil : TerminalEvent(kind: .stderr(text))
-            }
-
-            guard let normalized else { return }
-
-            events.append(normalized)
-            if events.count > maxStoredEvents {
-                events.removeFirst(events.count - maxStoredEvents)
-            }
-
-            if !hasEvents {
-                hasEvents = true
-            }
-
-            let count = events.count
-            // Avoid publishing every single line while burst output is flowing.
-            if count - eventCount >= 25 || count < eventCount {
-                eventCount = count
-            }
-
-//            switch normalized.kind {
-//            case let .command(value):
-//                print("[CMD] \(value)")
-//            case let .stdout(value):
-//                print("[OUT]\n\(value)")
-//            case let .stderr(value):
-//                print("[ERR]\n\(value)")
-//            }
-        }
-
-        func transcriptForModel(maxEvents: Int, maxCharacters: Int) -> String {
-            let recent = Array(events.suffix(maxEvents))
-            var blocks: [String] = []
-            blocks.reserveCapacity(recent.count)
-
-            for event in recent {
-                switch event.kind {
-                case let .command(value):
-                    blocks.append("[CMD] \(value)")
-                case let .stdout(value):
-                    let cleaned = value.cleanedForSemanticLog
-                    if !cleaned.isEmpty {
-                        blocks.append("[OUT]\n\(cleaned)")
-                    }
-                case let .stderr(value):
-                    let cleaned = value.cleanedForSemanticLog
-                    if !cleaned.isEmpty {
-                        blocks.append("[ERR]\n\(cleaned)")
-                    }
-                }
-            }
-
-            let joined = blocks.joined(separator: "\n\n")
-            if joined.count <= maxCharacters {
-                return joined
-            }
-            return String(joined.suffix(maxCharacters))
-        }
-
         func setConnected(_ connected: Bool) {
             isConnected = connected
-            if !connected {
-                canSendCommand = false
-            }
-        }
-
-        func markConnecting() {
-            canSendCommand = false
-        }
-
-        func markRemoteOutputReceived() {
-            if !canSendCommand {
-                canSendCommand = true
-            }
         }
 
         func setConnectionDescriptor(_ descriptor: String?) {
@@ -760,7 +651,6 @@ import Textual
             terminalTitle = ""
             currentDirectory = nil
             connectionDescriptor = nil
-            canSendCommand = false
             pendingCommand = nil
         }
 
@@ -770,27 +660,6 @@ import Textual
     }
 
     private extension String {
-        var cleanedForSemanticLog: String {
-            if !contains("\u{001B}") && !contains("\r") {
-                return trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-
-            var output = self
-            let patterns = [
-                #"\u{001B}\[[0-?]*[ -/]*[@-~]"#,
-                #"\u{001B}\][^\u{0007}]*\u{0007}"#,
-                #"\u{001B}\][^\u{001B}]*\u{001B}\\"#,
-            ]
-
-            for pattern in patterns {
-                output = output.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
-            }
-
-            output = output.replacingOccurrences(of: "\r", with: "")
-            output = output.trimmingCharacters(in: .whitespacesAndNewlines)
-            return output
-        }
-
         var strippingANSIEscapeCodes: String {
             var output = self
             let patterns = [
@@ -854,13 +723,7 @@ import Textual
     }
 
     private final class SSHLoggingTerminalView: LocalProcessTerminalView {
-        private let stdoutLogQueue = DispatchQueue(label: "observo.terminal.stdout-log")
-        private let stdoutLogFlushInterval: TimeInterval = 0.08
-        private let stdoutLogImmediateFlushBytes = 4096
-        private var pendingStdoutForLog = ""
-        private var pendingStdoutFlushWorkItem: DispatchWorkItem?
         private var appliedPaletteStyle: NSAppearance.Name?
-        weak var sessionStore: TerminalSessionStore?
 
         func applySystemPalette() {
             let style = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) ?? .aqua
@@ -905,50 +768,8 @@ import Textual
         }
 
         override func dataReceived(slice: ArraySlice<UInt8>) {
-            let text = String(decoding: slice, as: UTF8.self)
-            if !text.isEmpty {
-                enqueueStdoutForLog(text)
-            }
-
-            // Parsing the full slice avoids extra per-chunk overhead under heavy redraw streams.
+            // Semantic event capture is disabled; keep the fast path focused on terminal rendering.
             feed(byteArray: slice)
-        }
-
-        private func enqueueStdoutForLog(_ text: String) {
-            stdoutLogQueue.async { [weak self] in
-                guard let self else { return }
-                self.pendingStdoutForLog += text
-
-                if self.pendingStdoutForLog.utf8.count >= self.stdoutLogImmediateFlushBytes {
-                    self.flushPendingStdoutForLog()
-                    return
-                }
-
-                self.scheduleStdoutLogFlushIfNeeded()
-            }
-        }
-
-        private func scheduleStdoutLogFlushIfNeeded() {
-            guard pendingStdoutFlushWorkItem == nil else { return }
-
-            let workItem = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                self.pendingStdoutFlushWorkItem = nil
-                self.flushPendingStdoutForLog()
-            }
-            pendingStdoutFlushWorkItem = workItem
-            stdoutLogQueue.asyncAfter(deadline: .now() + stdoutLogFlushInterval, execute: workItem)
-        }
-
-        private func flushPendingStdoutForLog() {
-            guard !pendingStdoutForLog.isEmpty else { return }
-            let merged = pendingStdoutForLog
-            pendingStdoutForLog.removeAll(keepingCapacity: true)
-
-            Task { @MainActor in
-                sessionStore?.markRemoteOutputReceived()
-                sessionStore?.append(TerminalEvent(kind: .stdout(merged)))
-            }
         }
     }
 
@@ -956,6 +777,7 @@ import Textual
         weak static var visibleTerminal: SSHLoggingTerminalView?
 
         let terminalView: SSHLoggingTerminalView
+        private var scrollWheelMonitor: Any?
 
         init(terminalView: SSHLoggingTerminalView) {
             self.terminalView = terminalView
@@ -987,14 +809,20 @@ import Textual
             super.viewDidAppear()
             TerminalHostViewController.visibleTerminal = terminalView
             terminalView.applySystemPalette()
+            installScrollWheelBridgeIfNeeded()
             focusTerminalInput()
         }
 
         override func viewWillDisappear() {
             super.viewWillDisappear()
+            removeScrollWheelBridge()
             if TerminalHostViewController.visibleTerminal === terminalView {
                 TerminalHostViewController.visibleTerminal = nil
             }
+        }
+
+        deinit {
+            removeScrollWheelBridge()
         }
 
         func focusTerminalInput() {
@@ -1003,6 +831,53 @@ import Textual
             } else {
                 _ = terminalView.becomeFirstResponder()
             }
+        }
+
+        private func installScrollWheelBridgeIfNeeded() {
+            guard scrollWheelMonitor == nil else { return }
+
+            scrollWheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                guard let self else { return event }
+                guard let window = self.view.window, event.window === window else { return event }
+
+                let location = self.terminalView.convert(event.locationInWindow, from: nil)
+                guard self.terminalView.bounds.contains(location) else { return event }
+
+                // Match MacTerminal behavior but support devices that only provide scrollingDeltaY.
+                let rawDelta = event.deltaY != 0 ? event.deltaY : event.scrollingDeltaY
+                guard rawDelta != 0 else { return event }
+
+                let velocity = self.scrollingVelocity(for: rawDelta, precise: event.hasPreciseScrollingDeltas)
+                if rawDelta > 0 {
+                    self.terminalView.scrollUp(lines: velocity)
+                } else {
+                    self.terminalView.scrollDown(lines: velocity)
+                }
+                return nil
+            }
+        }
+
+        private func removeScrollWheelBridge() {
+            if let scrollWheelMonitor {
+                NSEvent.removeMonitor(scrollWheelMonitor)
+                self.scrollWheelMonitor = nil
+            }
+        }
+
+        private func scrollingVelocity(for delta: CGFloat, precise: Bool) -> Int {
+            let value = abs(delta)
+            if precise {
+                if value > 12 { return max(terminalView.getTerminal().rows, 20) }
+                if value > 6 { return 10 }
+                if value > 2 { return 3 }
+                return 1
+            }
+
+            let intValue = Int(value)
+            if intValue > 9 { return max(terminalView.getTerminal().rows, 20) }
+            if intValue > 5 { return 10 }
+            if intValue > 1 { return 3 }
+            return 1
         }
     }
 
@@ -1054,7 +929,6 @@ import Textual
             terminal.getTerminal().setCursorStyle(.steadyBlock)
             // Faster for tmux-like full-screen redraws; keeps glyph rendering on the platform text stack.
             terminal.customBlockGlyphs = false
-            terminal.sessionStore = sessionStore
             terminal.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
             terminal.applySystemPalette()
             terminal.feed(text: "[Terminal] Ready. Connect SSH or start Local Shell.\r\n")
@@ -1085,7 +959,6 @@ import Textual
             ) {
                 self.hostController = hostController
                 terminalView = terminal
-                terminal.sessionStore = sessionStore
                 ioBridge.bind(sessionStore: sessionStore)
                 terminal.processDelegate = ioBridge
             }
@@ -1178,17 +1051,12 @@ import Textual
             guard let pendingCommand else { return }
             guard pendingCommand.id != lastCommandID else { return }
 
-            guard sessionStore?.canSendCommand == true else {
-                return
-            }
-
             guard terminal.process.running else {
                 return
             }
 
             lastCommandID = pendingCommand.id
             Task { @MainActor in
-                sessionStore?.append(TerminalEvent(kind: .command(pendingCommand.text)))
                 sessionStore?.pendingCommand = nil
             }
             terminal.send(txt: pendingCommand.text + "\n")
